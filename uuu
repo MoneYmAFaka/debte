@@ -47,6 +47,37 @@ local eventArgs = {
     }
 }
 
+-- Cache chests to avoid frequent GetDescendants calls
+local cachedChests = {}
+
+local function updateChestCache()
+    cachedChests = {}
+    for _, model in pairs(workspace:GetDescendants()) do
+        if model:IsA("Model") and table.find(chestModels, model.Name) then
+            local collectTrigger = model:FindFirstChild("COLLECT_TRIGGER")
+            if collectTrigger and collectTrigger:IsA("BasePart") and collectTrigger:FindFirstChild("TouchInterest") then
+                table.insert(cachedChests, {Model = model, Trigger = collectTrigger})
+            end
+        end
+    end
+end
+
+-- Initial cache update
+updateChestCache()
+
+-- Update cache when new objects are added to workspace
+workspace.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("Model") and table.find(chestModels, descendant.Name) then
+        updateChestCache()
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(descendant)
+    if descendant:IsA("Model") and table.find(chestModels, descendant.Name) then
+        updateChestCache()
+    end
+end)
+
 -- Function to fire the server event
 local function fireEvent(arg)
     ReplicatedStorage:WaitForChild("KP4", 9e9):WaitForChild("f2f132db-0122-4698-97dd-8256df209691", 9e9):FireServer(unpack(arg))
@@ -72,45 +103,40 @@ end
 -- Function to glide the character to a target position
 local function glideToPosition(targetPosition)
     local distance = (rootPart.Position - targetPosition).Magnitude
-    local speed = 20 -- Adjust speed as needed
+    local speed = 20
     local direction = (targetPosition - rootPart.Position).Unit
     local timeToReach = distance / speed
 
-    humanoid.WalkSpeed = 0 -- Prevent player from moving manually
+    humanoid.WalkSpeed = 0
     local elapsedTime = 0
+    local steps = 10 -- Reduce the number of updates
+    local stepTime = timeToReach / steps
 
-    while elapsedTime < timeToReach do
+    for i = 1, steps do
         if not character or not rootPart or not humanoid then break end
-        elapsedTime = elapsedTime + RunService.Heartbeat:Wait()
+        elapsedTime = elapsedTime + stepTime
         local alpha = elapsedTime / timeToReach
         local newPosition = rootPart.Position:Lerp(targetPosition, alpha)
         rootPart.CFrame = CFrame.new(newPosition, newPosition + direction)
+        wait(stepTime)
     end
 
-    -- Ensure the character is at the exact position
     rootPart.CFrame = CFrame.new(targetPosition)
-    humanoid.WalkSpeed = 16 -- Restore default walk speed
+    humanoid.WalkSpeed = 16
 end
 
--- Function to find the nearest chest by its COLLECT_TRIGGER part
+-- Function to find the nearest chest from the cache
 local function findNearestChest()
     local closestTrigger = nil
     local closestDistance = math.huge
 
-    for _, modelName in pairs(chestModels) do
-        for _, model in pairs(workspace:GetDescendants()) do
-            if model:IsA("Model") and model.Name == modelName then
-                local collectTrigger = model:FindFirstChild("COLLECT_TRIGGER")
-                if collectTrigger and collectTrigger:IsA("BasePart") then
-                    local touchInterest = collectTrigger:FindFirstChild("TouchInterest")
-                    if touchInterest then
-                        local distance = (rootPart.Position - collectTrigger.Position).Magnitude
-                        if distance < closestDistance then
-                            closestDistance = distance
-                            closestTrigger = collectTrigger
-                        end
-                    end
-                end
+    for _, chest in pairs(cachedChests) do
+        local trigger = chest.Trigger
+        if trigger and trigger.Parent and trigger:FindFirstChild("TouchInterest") then
+            local distance = (rootPart.Position - trigger.Position).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestTrigger = trigger
             end
         end
     end
@@ -121,6 +147,8 @@ end
 -- Toggleable auto-collect loop
 local autoCollectEnabled = false
 local connection
+local lastCollectTime = 0
+local collectCooldown = 1 -- 1 second cooldown between collections
 
 local Toggle = Tab:CreateToggle({
    Name = "Auto Chest Collect",
@@ -134,6 +162,9 @@ local Toggle = Tab:CreateToggle({
          connection = RunService.Heartbeat:Connect(function()
             if not autoCollectEnabled then return end
 
+            -- Throttle the loop to run every 0.5 seconds
+            if tick() - lastCollectTime < 0.5 then return end
+
             character = player.Character
             if not character then return end
             rootPart = character:WaitForChild("HumanoidRootPart")
@@ -141,7 +172,7 @@ local Toggle = Tab:CreateToggle({
 
             local nearestTrigger, distance = findNearestChest()
 
-            if nearestTrigger and distance <= 100 then
+            if nearestTrigger and distance <= 100 and tick() - lastCollectTime >= collectCooldown then
                 glideToPosition(nearestTrigger.Position)
 
                 for _, arg in ipairs(eventArgs) do
@@ -150,7 +181,8 @@ local Toggle = Tab:CreateToggle({
                 end
 
                 simulateTaps()
-                wait(1)
+                lastCollectTime = tick()
+                updateChestCache() -- Update cache after collecting
             end
          end)
       else
