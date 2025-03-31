@@ -6,16 +6,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local GuiService = game:GetService("GuiService")
 
 -- Local player and character
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
-
--- Check if the user is on a mobile device
-local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 
 -- Create the UI window
 local Window = Rayfield:CreateWindow({
@@ -28,68 +24,6 @@ local Window = Rayfield:CreateWindow({
       FileName = "Arrayfield"
    }
 })
-
--- Adjust UI scale for mobile devices
-if isMobile then
-   -- Rayfield doesn't provide direct access to scale, so we'll adjust the UI after it's created
-   local screenGui = player.PlayerGui:WaitForChild("Rayfield")
-   if screenGui then
-      local mainFrame = screenGui:WaitForChild("Main")
-      if mainFrame then
-         mainFrame.Size = UDim2.new(0, 300, 0, 400) -- Smaller size for mobile
-         mainFrame.Position = UDim2.new(0.5, -150, 0.5, -200) -- Center the UI
-      end
-   end
-end
-
--- Make the UI draggable
-local function makeDraggable()
-   local screenGui = player.PlayerGui:WaitForChild("Rayfield")
-   if not screenGui then return end
-
-   local mainFrame = screenGui:WaitForChild("Main")
-   if not mainFrame then return end
-
-   local dragging = false
-   local dragInput
-   local dragStart
-   local startPos
-
-   mainFrame.InputBegan:Connect(function(input)
-      if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-         dragging = true
-         dragStart = input.Position
-         startPos = mainFrame.Position
-
-         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-               dragging = false
-            end
-         end)
-      end
-   end)
-
-   mainFrame.InputChanged:Connect(function(input)
-      if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-         dragInput = input
-      end
-   end)
-
-   UserInputService.InputChanged:Connect(function(input)
-      if dragging and (input == dragInput) then
-         local delta = input.Position - dragStart
-         mainFrame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-         )
-      end
-   end)
-end
-
--- Call the function to make the UI draggable
-makeDraggable()
 
 -- Create a tab for the auto chest feature
 local Tab = Window:CreateTab("Chest Collector", 4483362458)
