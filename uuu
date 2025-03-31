@@ -1,1 +1,229 @@
+-- Load the Rayfield UI library
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
+
+-- Local player and character
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- Check if the user is on a mobile device
+local isMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+
+-- Create the UI window
+local Window = Rayfield:CreateWindow({
+   Name = "Auto Chest Collector",
+   LoadingTitle = "Arrayfield Interface Suite",
+   LoadingSubtitle = "by Arrays",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = nil,
+      FileName = "Arrayfield"
+   }
+})
+
+-- Adjust UI scale for mobile devices
+if isMobile then
+   -- Rayfield doesn't provide direct access to scale, so we'll adjust the UI after it's created
+   local screenGui = player.PlayerGui:WaitForChild("Rayfield")
+   if screenGui then
+      local mainFrame = screenGui:WaitForChild("Main")
+      if mainFrame then
+         mainFrame.Size = UDim2.new(0, 300, 0, 400) -- Smaller size for mobile
+         mainFrame.Position = UDim2.new(0.5, -150, 0.5, -200) -- Center the UI
+      end
+   end
+end
+
+-- Make the UI draggable
+local function makeDraggable()
+   local screenGui = player.PlayerGui:WaitForChild("Rayfield")
+   if not screenGui then return end
+
+   local mainFrame = screenGui:WaitForChild("Main")
+   if not mainFrame then return end
+
+   local dragging = false
+   local dragInput
+   local dragStart
+   local startPos
+
+   mainFrame.InputBegan:Connect(function(input)
+      if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+         dragging = true
+         dragStart = input.Position
+         startPos = mainFrame.Position
+
+         input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+               dragging = false
+            end
+         end)
+      end
+   end)
+
+   mainFrame.InputChanged:Connect(function(input)
+      if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+         dragInput = input
+      end
+   end)
+
+   UserInputService.InputChanged:Connect(function(input)
+      if dragging and (input == dragInput) then
+         local delta = input.Position - dragStart
+         mainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+         )
+      end
+   end)
+end
+
+-- Call the function to make the UI draggable
+makeDraggable()
+
+-- Create a tab for the auto chest feature
+local Tab = Window:CreateTab("Chest Collector", 4483362458)
+
+-- Create a section for the toggle
+local Section = Tab:CreateSection("Auto Collect", false)
+
+-- Chest models from the image
+local chestModels = {"box_blue", "box_gold"}
+
+-- Event arguments for firing to the server
+local eventArgs = {
+    [1] = {
+        [1] = "bb32e050-7723-419b-9ff8-905fcadfdbf5"
+    },
+    [2] = {
+        [1] = "f606084e-edfa-4620-adf0-0952b24e7389"
+    },
+    [3] = {
+        [1] = "04addcf0-717e-46c5-bec7-883c728743a1"
+    }
+}
+
+-- Function to fire the server event
+local function fireEvent(arg)
+    ReplicatedStorage:WaitForChild("KP4", 9e9):WaitForChild("f2f132db-0122-4698-97dd-8256df209691", 9e9):FireServer(unpack(arg))
+end
+
+-- Function to simulate 5 screen taps (improved for mobile)
+local function simulateTaps()
+    for i = 1, 5 do
+        local touchPosition = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
+        local touchData = {
+            Position = touchPosition,
+            UserInputType = Enum.UserInputType.Touch,
+            UserInputState = Enum.UserInputState.Begin
+        }
+        UserInputService.InputBegan:Fire(touchData, false)
+        wait(0.05)
+        touchData.UserInputState = Enum.UserInputState.End
+        UserInputService.InputEnded:Fire(touchData, false)
+        wait(0.05)
+    end
+end
+
+-- Function to glide the character to a target position
+local function glideToPosition(targetPosition)
+    local distance = (rootPart.Position - targetPosition).Magnitude
+    local speed = 20 -- Adjust speed as needed
+    local direction = (targetPosition - rootPart.Position).Unit
+    local timeToReach = distance / speed
+
+    humanoid.WalkSpeed = 0 -- Prevent player from moving manually
+    local elapsedTime = 0
+
+    while elapsedTime < timeToReach do
+        if not character or not rootPart or not humanoid then break end
+        elapsedTime = elapsedTime + RunService.Heartbeat:Wait()
+        local alpha = elapsedTime / timeToReach
+        local newPosition = rootPart.Position:Lerp(targetPosition, alpha)
+        rootPart.CFrame = CFrame.new(newPosition, newPosition + direction)
+    end
+
+    -- Ensure the character is at the exact position
+    rootPart.CFrame = CFrame.new(targetPosition)
+    humanoid.WalkSpeed = 16 -- Restore default walk speed
+end
+
+-- Function to find the nearest chest by its COLLECT_TRIGGER part
+local function findNearestChest()
+    local closestTrigger = nil
+    local closestDistance = math.huge
+
+    for _, modelName in pairs(chestModels) do
+        for _, model in pairs(workspace:GetDescendants()) do
+            if model:IsA("Model") and model.Name == modelName then
+                local collectTrigger = model:FindFirstChild("COLLECT_TRIGGER")
+                if collectTrigger and collectTrigger:IsA("BasePart") then
+                    local touchInterest = collectTrigger:FindFirstChild("TouchInterest")
+                    if touchInterest then
+                        local distance = (rootPart.Position - collectTrigger.Position).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestTrigger = collectTrigger
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return closestTrigger, closestDistance
+end
+
+-- Toggleable auto-collect loop
+local autoCollectEnabled = false
+local connection
+
+local Toggle = Tab:CreateToggle({
+   Name = "Auto Chest Collect",
+   Info = "Toggles automatic chest collection.",
+   CurrentValue = false,
+   Flag = "AutoChestToggle",
+   Callback = function(Value)
+      autoCollectEnabled = Value
+
+      if autoCollectEnabled then
+         connection = RunService.Heartbeat:Connect(function()
+            if not autoCollectEnabled then return end
+
+            character = player.Character
+            if not character then return end
+            rootPart = character:WaitForChild("HumanoidRootPart")
+            humanoid = character:WaitForChild("Humanoid")
+
+            local nearestTrigger, distance = findNearestChest()
+
+            if nearestTrigger and distance <= 100 then
+                glideToPosition(nearestTrigger.Position)
+
+                for _, arg in ipairs(eventArgs) do
+                    fireEvent(arg)
+                    wait(0.1)
+                end
+
+                simulateTaps()
+                wait(1)
+            end
+         end)
+      else
+         if connection then
+            connection:Disconnect()
+         end
+         humanoid.WalkSpeed = 16
+      end
+   end,
+})
