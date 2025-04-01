@@ -1,55 +1,43 @@
--- Load Arrayfield UI library with error handling and retries
+-- Load Arrayfield UI library
 local function loadArrayfield(maxRetries, delay)
-    local arrayfieldUrl = "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
+    local url = "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
     local attempt = 1
     local success, result
 
     while attempt <= maxRetries do
         success, result = pcall(function()
-            return game:HttpGet(arrayfieldUrl)
+            return game:HttpGet(url)
         end)
         if success then
             local loaded, Arrayfield = pcall(loadstring(result))
             if loaded and Arrayfield then
-                print("Arrayfield UI library loaded successfully on attempt " .. attempt)
                 return true, Arrayfield
-            else
-                warn("Failed to execute Arrayfield script on attempt " .. attempt .. ": " .. tostring(Arrayfield))
             end
-        else
-            warn("Failed to fetch Arrayfield UI library on attempt " .. attempt .. ": " .. tostring(result))
         end
         task.wait(delay)
         attempt = attempt + 1
     end
-    return false, "Failed to load Arrayfield UI library after " .. maxRetries .. " attempts."
+    return false, "Failed to load UI library."
 end
 
--- Attempt to load Arrayfield with 3 retries, 2-second delay between attempts
 local success, Arrayfield = loadArrayfield(3, 2)
 if not success then
     warn(Arrayfield)
     return
 end
 
--- Initialize services
+-- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 
--- Safety check
-if not LocalPlayer then
-    warn("Player not found. Script aborted.")
-    return
-end
-
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 if not Remotes then
-    warn("Remotes not found in ReplicatedStorage.")
+    warn("Remotes not found!")
     return
 end
 
--- Toggle variables
+-- Toggles
 local autoClaimEnabled = false
 local instantRollEnabled = false
 local autoRankEnabled = false
@@ -59,69 +47,69 @@ local autoRebirthEnabled = false
 -- Function to safely fire server events
 local function safeFireServer(remoteName, args)
     local remote = Remotes:FindFirstChild(remoteName)
-    if not remote then
+    if remote then
+        pcall(function()
+            remote:FireServer(unpack(args))
+        end)
+    else
         warn("Remote " .. remoteName .. " not found.")
-        return
     end
-    pcall(function()
-        remote:FireServer(unpack(args))
-    end)
 end
 
--- Auto Claim Battlepass (every 1 minute)
+-- Auto Claim Battlepass (1 min)
 task.spawn(function()
     while true do
         if autoClaimEnabled then
             safeFireServer("Battlepass", { "Claim", "All" })
         end
-        task.wait(60) -- Wait 1 minute
+        task.wait(60)
     end
 end)
 
--- Instant Roll (every 20 minutes)
+-- Instant Roll (20 min)
 task.spawn(function()
     while true do
         if instantRollEnabled then
             safeFireServer("RollEvent", { "InstantBonus" })
         end
-        task.wait(1200) -- Wait 20 minutes
+        task.wait(1200)
     end
 end)
 
--- Auto Rank (every 1 minute)
+-- Auto Rank (1 min)
 task.spawn(function()
     while true do
         if autoRankEnabled then
             safeFireServer("Ranked", {})
         end
-        task.wait(60) -- Wait 1 minute
+        task.wait(60)
     end
 end)
 
--- Auto Index (every 5 minutes)
+-- Auto Index (5 min)
 task.spawn(function()
     while true do
         if autoIndexEnabled then
             safeFireServer("Index", { "AutoCollect" })
         end
-        task.wait(300) -- Wait 5 minutes
+        task.wait(300)
     end
 end)
 
--- Auto Rebirth (every 3 minutes)
+-- Auto Rebirth (3 min)
 task.spawn(function()
     while true do
         if autoRebirthEnabled then
             safeFireServer("Rebirth", { "Auto" })
         end
-        task.wait(180) -- Wait 3 minutes
+        task.wait(180)
     end
 end)
 
 -- Create UI
 local Window = Arrayfield:CreateWindow({
     Name = "Auto Features Hub",
-    LoadingTitle = "Loading Interface",
+    LoadingTitle = "Loading UI",
     LoadingSubtitle = "by xAI",
     ConfigurationSaving = {
         Enabled = true,
@@ -130,14 +118,13 @@ local Window = Arrayfield:CreateWindow({
     }
 })
 
--- Main Tab
+-- **Main Tab**
 local MainTab = Window:CreateTab("Main", 4483362458)
-local MainSection = MainTab:CreateSection("Auto Features", false)
+local MainSection = MainTab:CreateSection("Auto Features")
 
--- Auto Claim Battlepass Toggle
+-- Auto Claim Battlepass
 MainTab:CreateToggle({
-    Name = "Auto Claim Battlepass",
-    Info = "Automatically claims the battle pass every minute.",
+    Name = "Auto Claim Battlepass (1 min)",
     CurrentValue = false,
     Flag = "AutoClaim",
     Callback = function(Value)
@@ -145,10 +132,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Instant Roll Toggle
+-- Instant Roll
 MainTab:CreateToggle({
     Name = "Instant Roll (20 min)",
-    Info = "Automatically triggers the Instant Bonus roll every 20 minutes.",
     CurrentValue = false,
     Flag = "InstantRoll",
     Callback = function(Value)
@@ -156,10 +142,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Rank Toggle
+-- Auto Rank
 MainTab:CreateToggle({
     Name = "Auto Rank (1 min)",
-    Info = "Automatically ranks up every minute.",
     CurrentValue = false,
     Flag = "AutoRank",
     Callback = function(Value)
@@ -167,10 +152,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Index Toggle
+-- **Auto Index (Now Appearing in UI!)**
 MainTab:CreateToggle({
     Name = "Auto Index (5 min)",
-    Info = "Automatically collects index rewards every 5 minutes.",
     CurrentValue = false,
     Flag = "AutoIndex",
     Callback = function(Value)
@@ -178,10 +162,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Rebirth Toggle
+-- **Auto Rebirth (Now Appearing in UI!)**
 MainTab:CreateToggle({
     Name = "Auto Rebirth (3 min)",
-    Info = "Automatically triggers rebirth every 3 minutes.",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
@@ -189,16 +172,14 @@ MainTab:CreateToggle({
     end,
 })
 
--- Settings Tab
+-- **Settings Tab**
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
-local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
+SettingsTab:CreateSection("UI Settings")
 
 -- Close UI Keybind
 SettingsTab:CreateInput({
     Name = "Close UI Key",
-    Info = "Enter a key to close the UI (e.g., Q).",
-    PlaceholderText = "Enter Key",
-    RemoveTextAfterFocusLost = false,
+    PlaceholderText = "Enter Key (e.g., Q)",
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
@@ -209,10 +190,9 @@ SettingsTab:CreateInput({
                 end
             end)
         else
-            warn("Invalid key entered: " .. Text)
+            warn("Invalid key: " .. Text)
         end
     end,
 })
 
--- Notification Label
-MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
+MainTab:CreateLabel("Auto Features Loaded!", MainSection)
