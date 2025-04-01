@@ -55,21 +55,23 @@ local autoClaimEnabled = false
 local autoRebirthEnabled = false
 local autoIndexEnabled = false
 local autoPotionEnabled = false
-local selectedPotion = "Lucky Potion II"
-local potionAmount = 1
+local autoInstantRollEnabled = false
+local autoRankEnabled = false
 
 -- Stop events for each feature
 local autoClaimStopEvent = Instance.new("BindableEvent")
 local autoRebirthStopEvent = Instance.new("BindableEvent")
 local autoIndexStopEvent = Instance.new("BindableEvent")
 local autoPotionStopEvent = Instance.new("BindableEvent")
+local autoInstantRollStopEvent = Instance.new("BindableEvent")
+local autoRankStopEvent = Instance.new("BindableEvent")
 
--- Randomized delay function to mimic human behavior
+-- Randomized delay function
 local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer with existence check and stop event
+-- Safe FireServer function
 local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
     local remote = Remotes:FindFirstChild(remoteName)
     if not remote then
@@ -78,27 +80,38 @@ local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
     end
     local connection
     connection = stopEvent.Event:Connect(function()
-        connection:Disconnect() -- Stop listening for the event
+        connection:Disconnect()
     end)
     task.spawn(function()
         while true do
             if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then
-                stopEvent:Fire() -- Signal the loop to stop
+                stopEvent:Fire()
                 break
             end
             pcall(function()
                 remote:FireServer(unpack(args))
             end)
             randomDelay(minDelay, maxDelay)
-            if not connection.Connected then break end -- Stop if the event was fired
+            if not connection.Connected then break end
         end
     end)
 end
 
--- Auto Claim
+-- Auto Claim Battle Pass (every 1 minute)
 local function autoClaim()
     _G["BattlepassEnabled"] = autoClaimEnabled
-    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 5, 7, autoClaimStopEvent)
+    task.spawn(function()
+        while autoClaimEnabled do
+            local remote = Remotes:FindFirstChild("Battlepass")
+            if remote then
+                pcall(function()
+                    remote:FireServer("Claim", "All")
+                end)
+                print("Auto-claimed battle pass!")
+            end
+            task.wait(60) -- Every 1 minute
+        end
+    end)
 end
 
 -- Auto Rebirth
@@ -113,10 +126,55 @@ local function autoIndex()
     safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
 end
 
--- Auto Potion
+-- Auto Potion (no selection, just buy when toggled)
 local function autoPotion()
     _G["PotionCraftEnabled"] = autoPotionEnabled
-    safeFireServer("PotionCraft", { [1] = selectedPotion, [2] = false, [3] = potionAmount }, 10, 15, autoPotionStopEvent)
+    task.spawn(function()
+        while autoPotionEnabled do
+            local remote = Remotes:FindFirstChild("PotionCraft")
+            if remote then
+                pcall(function()
+                    remote:FireServer()
+                end)
+                print("Bought potion!")
+            end
+            task.wait(10) -- Adjust delay if needed
+        end
+    end)
+end
+
+-- Auto Instant Roll (every 15 minutes)
+local function autoInstantRoll()
+    _G["InstantRollEnabled"] = autoInstantRollEnabled
+    task.spawn(function()
+        while autoInstantRollEnabled do
+            local remote = Remotes:FindFirstChild("RollEvent")
+            if remote then
+                pcall(function()
+                    remote:FireServer("InstantBonus")
+                end)
+                print("Instant Bonus triggered!")
+            end
+            task.wait(900) -- 15 minutes (900 seconds)
+        end
+    end)
+end
+
+-- Auto Rank (every 1 minute)
+local function autoRank()
+    _G["RankedEnabled"] = autoRankEnabled
+    task.spawn(function()
+        while autoRankEnabled do
+            local remote = Remotes:FindFirstChild("Ranked")
+            if remote then
+                pcall(function()
+                    remote:FireServer()
+                end)
+                print("Auto-ranked up!")
+            end
+            task.wait(60) -- Every 1 minute
+        end
+    end)
 end
 
 -- Create UI
@@ -131,141 +189,68 @@ local Window = Arrayfield:CreateWindow({
     }
 })
 
--- Fix UISizeConstraint issue
-local function fixUISizeConstraints(window)
-    for _, element in pairs(window:GetDescendants()) do
-        if element:IsA("UISizeConstraint") then
-            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
-                element.MaxSize = Vector2.new(
-                    math.max(element.MaxSize.X, element.MinSize.X),
-                    math.max(element.MaxSize.Y, element.MinSize.Y)
-                )
-            end
-        end
-    end
-end
-
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
 
--- Auto Claim Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Battlepass",
-    Info = "Automatically claims the battle pass when available.",
     CurrentValue = false,
     Flag = "AutoClaim",
     Callback = function(Value)
         autoClaimEnabled = Value
-        if Value then
-            autoClaim()
-        else
-            autoClaimStopEvent:Fire() -- Stop the loop
-        end
+        if Value then autoClaim() else autoClaimStopEvent:Fire() end
     end,
 })
 
--- Auto Rebirth Toggle
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
-    Info = "Automatically rebirths when available.",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
         autoRebirthEnabled = Value
-        if Value then
-            autoRebirth()
-        else
-            autoRebirthStopEvent:Fire()
-        end
+        if Value then autoRebirth() else autoRebirthStopEvent:Fire() end
     end,
 })
 
--- Auto Index Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Index",
-    Info = "Automatically claims index when available.",
     CurrentValue = false,
     Flag = "AutoIndex",
     Callback = function(Value)
         autoIndexEnabled = Value
-        if Value then
-            autoIndex()
-        else
-            autoIndexStopEvent:Fire()
-        end
+        if Value then autoIndex() else autoIndexStopEvent:Fire() end
     end,
 })
 
--- Auto Potion Toggle
 MainTab:CreateToggle({
-    Name = "Auto Buy Potion",
-    Info = "Automatically buys the selected potion.",
+    Name = "Auto Buy Potions",
     CurrentValue = false,
     Flag = "AutoPotion",
     Callback = function(Value)
         autoPotionEnabled = Value
-        if Value then
-            autoPotion()
-        else
-            autoPotionStopEvent:Fire()
-        end
+        if Value then autoPotion() else autoPotionStopEvent:Fire() end
     end,
 })
 
--- Potion Selection Dropdown
-MainTab:CreateDropdown({
-    Name = "Select Potion",
-    Options = {"Lucky Potion II", "Speed Potion II"},
-    CurrentOption = "Lucky Potion II",
-    MultiSelection = false,
-    Flag = "PotionType",
-    Callback = function(Option)
-        selectedPotion = Option
-    end,
-})
-
--- Potion Amount Slider
-MainTab:CreateSlider({
-    Name = "Potion Amount",
-    Info = "Set the number of potions to buy.",
-    Range = {1, 5},
-    Increment = 1,
-    Suffix = "Potions",
-    CurrentValue = 1,
-    Flag = "PotionAmount",
+MainTab:CreateToggle({
+    Name = "Auto Instant Roll",
+    CurrentValue = false,
+    Flag = "AutoInstantRoll",
     Callback = function(Value)
-        potionAmount = Value
+        autoInstantRollEnabled = Value
+        if Value then autoInstantRoll() else autoInstantRollStopEvent:Fire() end
     end,
 })
 
--- Settings Tab
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
-
--- Close Keybind
-SettingsTab:CreateInput({
-    Name = "Close UI Key",
-    Info = "Enter a key to close the UI (e.g., Q).",
-    PlaceholderText = "Enter Key",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(Text)
-        local key = Enum.KeyCode[Text:upper()]
-        if key then
-            UserInputService.InputBegan:Connect(function(input)
-                if input.KeyCode == key then
-                    Window:Destroy()
-                    print("UI closed with key: " .. Text)
-                end
-            end)
-        else
-            warn("Invalid key entered: " .. Text)
-        end
+MainTab:CreateToggle({
+    Name = "Auto Rank",
+    CurrentValue = false,
+    Flag = "AutoRank",
+    Callback = function(Value)
+        autoRankEnabled = Value
+        if Value then autoRank() else autoRankStopEvent:Fire() end
     end,
 })
 
--- Apply the fix after creating all UI elements
-fixUISizeConstraints(Window)
-
--- Notification (Arrayfield doesn't have a Notify function, so we'll use a label instead)
 MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
