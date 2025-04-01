@@ -53,6 +53,8 @@ end
 local autoClaimEnabled = false
 local instantRollEnabled = false
 local autoRankEnabled = false
+local autoIndexEnabled = false
+local autoRebirthEnabled = false
 
 -- Function to safely fire server events
 local function safeFireServer(remoteName, args)
@@ -93,6 +95,26 @@ task.spawn(function()
             safeFireServer("Ranked", {})
         end
         task.wait(60) -- Wait 1 minute
+    end
+end)
+
+-- Auto Index (every 5 minutes)
+task.spawn(function()
+    while true do
+        if autoIndexEnabled then
+            safeFireServer("Index", { "AutoCollect" })
+        end
+        task.wait(300) -- Wait 5 minutes
+    end
+end)
+
+-- Auto Rebirth (every 3 minutes)
+task.spawn(function()
+    while true do
+        if autoRebirthEnabled then
+            safeFireServer("Rebirth", { "Auto" })
+        end
+        task.wait(180) -- Wait 3 minutes
     end
 end)
 
@@ -142,6 +164,28 @@ MainTab:CreateToggle({
     Flag = "AutoRank",
     Callback = function(Value)
         autoRankEnabled = Value
+    end,
+})
+
+-- Auto Index Toggle
+MainTab:CreateToggle({
+    Name = "Auto Index (5 min)",
+    Info = "Automatically collects index rewards every 5 minutes.",
+    CurrentValue = false,
+    Flag = "AutoIndex",
+    Callback = function(Value)
+        autoIndexEnabled = Value
+    end,
+})
+
+-- Auto Rebirth Toggle
+MainTab:CreateToggle({
+    Name = "Auto Rebirth (3 min)",
+    Info = "Automatically triggers rebirth every 3 minutes.",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        autoRebirthEnabled = Value
     end,
 })
 
