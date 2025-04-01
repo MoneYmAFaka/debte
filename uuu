@@ -58,25 +58,39 @@ local autoPotionEnabled = false
 local selectedPotion = "Lucky Potion II"
 local potionAmount = 1
 
+-- Stop events for each feature
+local autoClaimStopEvent = Instance.new("BindableEvent")
+local autoRebirthStopEvent = Instance.new("BindableEvent")
+local autoIndexStopEvent = Instance.new("BindableEvent")
+local autoPotionStopEvent = Instance.new("BindableEvent")
+
 -- Randomized delay function to mimic human behavior
 local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer with existence check
-local function safeFireServer(remoteName, args, minDelay, maxDelay)
+-- Safe FireServer with existence check and stop event
+local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
     local remote = Remotes:FindFirstChild(remoteName)
     if not remote then
         warn("Remote " .. remoteName .. " not found.")
         return
     end
+    local connection
+    connection = stopEvent.Event:Connect(function()
+        connection:Disconnect() -- Stop listening for the event
+    end)
     task.spawn(function()
         while true do
-            if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then break end
+            if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then
+                stopEvent:Fire() -- Signal the loop to stop
+                break
+            end
             pcall(function()
                 remote:FireServer(unpack(args))
             end)
             randomDelay(minDelay, maxDelay)
+            if not connection.Connected then break end -- Stop if the event was fired
         end
     end)
 end
@@ -84,25 +98,25 @@ end
 -- Auto Claim
 local function autoClaim()
     _G["BattlepassEnabled"] = autoClaimEnabled
-    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 5, 7)
+    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 5, 7, autoClaimStopEvent)
 end
 
 -- Auto Rebirth
 local function autoRebirth()
     _G["RebirthEnabled"] = autoRebirthEnabled
-    safeFireServer("Rebirth", {}, 5, 7)
+    safeFireServer("Rebirth", {}, 5, 7, autoRebirthStopEvent)
 end
 
 -- Auto Index
 local function autoIndex()
     _G["ClaimIndexEnabled"] = autoIndexEnabled
-    safeFireServer("ClaimIndex", {}, 5, 7)
+    safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
 end
 
 -- Auto Potion
 local function autoPotion()
     _G["PotionCraftEnabled"] = autoPotionEnabled
-    safeFireServer("PotionCraft", { [1] = "SelectedPotion", [2] = false, [3] = potionAmount }, 10, 15)
+    safeFireServer("PotionCraft", { [1] = selectedPotion, [2] = false, [3] = potionAmount }, 10, 15, autoPotionStopEvent)
 end
 
 -- Create UI
@@ -143,7 +157,11 @@ MainTab:CreateToggle({
     Flag = "AutoClaim",
     Callback = function(Value)
         autoClaimEnabled = Value
-        if Value then autoClaim() end
+        if Value then
+            autoClaim()
+        else
+            autoClaimStopEvent:Fire() -- Stop the loop
+        end
     end,
 })
 
@@ -155,7 +173,11 @@ MainTab:CreateToggle({
     Flag = "AutoRebirth",
     Callback = function(Value)
         autoRebirthEnabled = Value
-        if Value then autoRebirth() end
+        if Value then
+            autoRebirth()
+        else
+            autoRebirthStopEvent:Fire()
+        end
     end,
 })
 
@@ -167,7 +189,11 @@ MainTab:CreateToggle({
     Flag = "AutoIndex",
     Callback = function(Value)
         autoIndexEnabled = Value
-        if Value then autoIndex() end
+        if Value then
+            autoIndex()
+        else
+            autoIndexStopEvent:Fire()
+        end
     end,
 })
 
@@ -179,7 +205,11 @@ MainTab:CreateToggle({
     Flag = "AutoPotion",
     Callback = function(Value)
         autoPotionEnabled = Value
-        if Value then autoPotion() end
+        if Value then
+            autoPotion()
+        else
+            autoPotionStopEvent:Fire()
+        end
     end,
 })
 
