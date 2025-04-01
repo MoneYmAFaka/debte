@@ -1,4 +1,4 @@
--- Ensure Rayfield is loaded safely
+-- Safe loading of Rayfield UI library
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
 end)
@@ -8,9 +8,23 @@ if not success then
 end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
 
--- Variables to control toggles
+-- Check if player is in game
+if not LocalPlayer then
+    warn("Player not found. Script aborted.")
+    return
+end
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10) -- Reduced timeout for efficiency
+if not Remotes then
+    warn("Remotes not found in ReplicatedStorage.")
+    return
+end
+
+-- Toggle variables
 local autoClaimEnabled = false
 local autoRebirthEnabled = false
 local autoIndexEnabled = false
@@ -18,74 +32,48 @@ local autoPotionEnabled = false
 local selectedPotion = "Lucky Potion II"
 local potionAmount = 1
 
--- Randomized delay function to mimic human behavior
+-- Randomized delay function
 local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer with cooldown
-local function safeFireServer(remote, args, minDelay, maxDelay)
+-- Safe FireServer with existence check
+local function safeFireServer(remoteName, args, minDelay, maxDelay)
+    local remote = Remotes:FindFirstChild(remoteName)
+    if not remote then return end
     task.spawn(function()
         while true do
-            if not remote:IsDescendantOf(ReplicatedStorage) then break end
+            if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then break end
             pcall(function()
                 remote:FireServer(unpack(args))
             end)
-            randomDelay(minDelay, maxDelay) -- Randomized delay to avoid detection
+            randomDelay(minDelay, maxDelay)
         end
     end)
 end
 
--- Auto Claim Function
+-- Auto Claim
 local function autoClaim()
-    task.spawn(function()
-        while autoClaimEnabled do
-            local args = { [1] = "Claim", [2] = "All" }
-            pcall(function()
-                Remotes:WaitForChild("Battlepass", 9e9):FireServer(unpack(args))
-            end)
-            randomDelay(5, 7) -- Randomized 5-7s delay
-        end
-    end)
+    _G["BattlepassEnabled"] = autoClaimEnabled
+    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 5, 7)
 end
 
--- Auto Rebirth Function
+-- Auto Rebirth
 local function autoRebirth()
-    task.spawn(function()
-        while autoRebirthEnabled do
-            local args = {}
-            pcall(function()
-                Remotes:WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
-            end)
-            randomDelay(5, 7) -- Randomized 5-7s delay
-        end
-    end)
+    _G["RebirthEnabled"] = autoRebirthEnabled
+    safeFireServer("Rebirth", {}, 5, 7)
 end
 
--- Auto Index Function
+-- Auto Index
 local function autoIndex()
-    task.spawn(function()
-        while autoIndexEnabled do
-            local args = {}
-            pcall(function()
-                Remotes:WaitForChild("ClaimIndex", 9e9):FireServer(unpack(args))
-            end)
-            randomDelay(5, 7) -- Randomized 5-7s delay
-        end
-    end)
+    _G["ClaimIndexEnabled"] = autoIndexEnabled
+    safeFireServer("ClaimIndex", {}, 5, 7)
 end
 
--- Auto Potion Function
+-- Auto Potion
 local function autoPotion()
-    task.spawn(function()
-        while autoPotionEnabled do
-            local args = { [1] = selectedPotion, [2] = false, [3] = potionAmount }
-            pcall(function()
-                Remotes:WaitForChild("PotionCraft", 9e9):FireServer(unpack(args))
-            end)
-            randomDelay(10, 15) -- Slower randomized 10-15s delay for purchases
-        end
-    end)
+    _G["PotionCraftEnabled"] = autoPotionEnabled
+    safeFireServer("PotionCraft", { [1] = selectedPotion, [2] = false, [3] = potionAmount }, 10, 15)
 end
 
 -- Create UI
@@ -104,7 +92,7 @@ local Window = Rayfield:CreateWindow({
 local MainTab = Window:CreateTab("Main", 4483362458)
 MainTab:CreateSection("Auto Features")
 
--- Auto Claim Toggle
+-- Toggles
 MainTab:CreateToggle({
     Name = "Auto Claim Battlepass",
     CurrentValue = false,
@@ -115,7 +103,6 @@ MainTab:CreateToggle({
     end
 })
 
--- Auto Rebirth Toggle
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
     CurrentValue = false,
@@ -126,7 +113,6 @@ MainTab:CreateToggle({
     end
 })
 
--- Auto Index Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Index",
     CurrentValue = false,
@@ -137,7 +123,6 @@ MainTab:CreateToggle({
     end
 })
 
--- Auto Potion Toggle
 MainTab:CreateToggle({
     Name = "Auto Buy Potion",
     CurrentValue = false,
@@ -148,7 +133,7 @@ MainTab:CreateToggle({
     end
 })
 
--- Potion Selection Dropdown
+-- Potion Options
 MainTab:CreateDropdown({
     Name = "Select Potion",
     Options = {"Lucky Potion II", "Speed Potion II"},
@@ -159,10 +144,9 @@ MainTab:CreateDropdown({
     end
 })
 
--- Potion Amount Slider
 MainTab:CreateSlider({
     Name = "Potion Amount",
-    Range = {1, 5}, -- Reduced max to 5 to avoid suspicion
+    Range = {1, 5},
     Increment = 1,
     Suffix = "Potions",
     CurrentValue = 1,
@@ -176,7 +160,6 @@ MainTab:CreateSlider({
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 SettingsTab:CreateSection("UI Settings")
 
--- Close Keybind
 SettingsTab:CreateInput({
     Name = "Close UI Key",
     PlaceholderText = "Enter Key (e.g., Q)",
@@ -184,7 +167,7 @@ SettingsTab:CreateInput({
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
-            game:GetService("UserInputService").InputBegan:Connect(function(input)
+            UserInputService.InputBegan:Connect(function(input)
                 if input.KeyCode == key then
                     Rayfield:Destroy()
                 end
@@ -196,13 +179,10 @@ SettingsTab:CreateInput({
 -- Notification
 Rayfield:Notify({
     Title = "Safe Auto Features Loaded",
-    Content = "Features are running with anti-ban protection!",
+    Content = "Running with anti-ban measures!",
     Duration = 5,
     Image = 4483362458,
     Actions = {
-        Ignore = {
-            Name = "OK",
-            Callback = function() end
-        }
+        Ignore = { Name = "OK", Callback = function() end }
     }
 })
