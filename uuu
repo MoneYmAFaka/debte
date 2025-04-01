@@ -1,4 +1,12 @@
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+-- Ensure Rayfield is loaded safely
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+end)
+if not success then
+    warn("Failed to load Rayfield UI library.")
+    return
+end
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
 
@@ -10,15 +18,20 @@ local autoPotionEnabled = false
 local selectedPotion = "Lucky Potion II"
 local potionAmount = 1
 
--- Function to handle delays and prevent spamming
-local function safeFireServer(remote, args, delay)
+-- Randomized delay function to mimic human behavior
+local function randomDelay(min, max)
+    return task.wait(min + math.random() * (max - min))
+end
+
+-- Safe FireServer with cooldown
+local function safeFireServer(remote, args, minDelay, maxDelay)
     task.spawn(function()
         while true do
             if not remote:IsDescendantOf(ReplicatedStorage) then break end
             pcall(function()
                 remote:FireServer(unpack(args))
             end)
-            task.wait(delay)
+            randomDelay(minDelay, maxDelay) -- Randomized delay to avoid detection
         end
     end)
 end
@@ -31,7 +44,7 @@ local function autoClaim()
             pcall(function()
                 Remotes:WaitForChild("Battlepass", 9e9):FireServer(unpack(args))
             end)
-            task.wait(5) -- Check every 5 seconds
+            randomDelay(5, 7) -- Randomized 5-7s delay
         end
     end)
 end
@@ -44,7 +57,7 @@ local function autoRebirth()
             pcall(function()
                 Remotes:WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
             end)
-            task.wait(5) -- Check every 5 seconds
+            randomDelay(5, 7) -- Randomized 5-7s delay
         end
     end)
 end
@@ -57,7 +70,7 @@ local function autoIndex()
             pcall(function()
                 Remotes:WaitForChild("ClaimIndex", 9e9):FireServer(unpack(args))
             end)
-            task.wait(5) -- Check every 5 seconds
+            randomDelay(5, 7) -- Randomized 5-7s delay
         end
     end)
 end
@@ -70,26 +83,25 @@ local function autoPotion()
             pcall(function()
                 Remotes:WaitForChild("PotionCraft", 9e9):FireServer(unpack(args))
             end)
-            task.wait(10) -- Slower delay for buying potions to avoid spam
+            randomDelay(10, 15) -- Slower randomized 10-15s delay for purchases
         end
     end)
 end
 
 -- Create UI
 local Window = Rayfield:CreateWindow({
-    Name = "Auto Features Hub",
+    Name = "Safe Auto Hub",
     LoadingTitle = "Loading Interface",
     LoadingSubtitle = "by xAI",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "AutoHub",
+        FolderName = "SafeAutoHub",
         FileName = "Config"
     }
 })
 
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
-
 MainTab:CreateSection("Auto Features")
 
 -- Auto Claim Toggle
@@ -150,7 +162,7 @@ MainTab:CreateDropdown({
 -- Potion Amount Slider
 MainTab:CreateSlider({
     Name = "Potion Amount",
-    Range = {1, 10},
+    Range = {1, 5}, -- Reduced max to 5 to avoid suspicion
     Increment = 1,
     Suffix = "Potions",
     CurrentValue = 1,
@@ -162,7 +174,6 @@ MainTab:CreateSlider({
 
 -- Settings Tab
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
-
 SettingsTab:CreateSection("UI Settings")
 
 -- Close Keybind
@@ -184,8 +195,8 @@ SettingsTab:CreateInput({
 
 -- Notification
 Rayfield:Notify({
-    Title = "Auto Features Loaded",
-    Content = "All features are ready to use!",
+    Title = "Safe Auto Features Loaded",
+    Content = "Features are running with anti-ban protection!",
     Duration = 5,
     Image = 4483362458,
     Actions = {
