@@ -1,36 +1,5 @@
--- Load Arrayfield UI library with error handling and retries
-local function loadArrayfield(maxRetries, delay)
-    local arrayfieldUrl = "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
-    local attempt = 1
-    local success, result
-
-    while attempt <= maxRetries do
-        success, result = pcall(function()
-            return game:HttpGet(arrayfieldUrl)
-        end)
-        if success then
-            local loaded, Arrayfield = pcall(loadstring(result))
-            if loaded and Arrayfield then
-                print("Arrayfield UI library loaded successfully on attempt " .. attempt)
-                return true, Arrayfield
-            else
-                warn("Failed to execute Arrayfield script on attempt " .. attempt .. ": " .. tostring(Arrayfield))
-            end
-        else
-            warn("Failed to fetch Arrayfield UI library on attempt " .. attempt .. ": " .. tostring(result))
-        end
-        task.wait(delay)
-        attempt = attempt + 1
-    end
-    return false, "Failed to load Arrayfield UI library after " .. maxRetries .. " attempts."
-end
-
--- Attempt to load Arrayfield with 3 retries, 2-second delay between attempts
-local success, Arrayfield = loadArrayfield(3, 2)
-if not success then
-    warn(Arrayfield)
-    return
-end
+-- Load Arrayfield UI library
+local Arrayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
 
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -54,15 +23,15 @@ end
 local autoClaimEnabled = false
 local autoRebirthEnabled = false
 local autoIndexEnabled = false
-local autoPotionEnabled = false
-local selectedPotion = "Lucky Potion II"
-local potionAmount = 1
+local autoRankEnabled = false
+local autoRollEnabled = false
 
 -- Stop events for each feature
 local autoClaimStopEvent = Instance.new("BindableEvent")
 local autoRebirthStopEvent = Instance.new("BindableEvent")
 local autoIndexStopEvent = Instance.new("BindableEvent")
-local autoPotionStopEvent = Instance.new("BindableEvent")
+local autoRankStopEvent = Instance.new("BindableEvent")
+local autoRollStopEvent = Instance.new("BindableEvent")
 
 -- Randomized delay function to mimic human behavior
 local function randomDelay(min, max)
@@ -78,27 +47,27 @@ local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
     end
     local connection
     connection = stopEvent.Event:Connect(function()
-        connection:Disconnect() -- Stop listening for the event
+        connection:Disconnect()
     end)
     task.spawn(function()
         while true do
             if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then
-                stopEvent:Fire() -- Signal the loop to stop
+                stopEvent:Fire()
                 break
             end
             pcall(function()
                 remote:FireServer(unpack(args))
             end)
             randomDelay(minDelay, maxDelay)
-            if not connection.Connected then break end -- Stop if the event was fired
+            if not connection.Connected then break end
         end
     end)
 end
 
--- Auto Claim
+-- Auto Claim (every 2 minutes)
 local function autoClaim()
     _G["BattlepassEnabled"] = autoClaimEnabled
-    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 5, 7, autoClaimStopEvent)
+    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 120, 120, autoClaimStopEvent)
 end
 
 -- Auto Rebirth
@@ -113,10 +82,18 @@ local function autoIndex()
     safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
 end
 
--- Auto Potion
-local function autoPotion()
-    _G["PotionCraftEnabled"] = autoPotionEnabled
-    safeFireServer("PotionCraft", { [1] = selectedPotion, [2] = false, [3] = potionAmount }, 10, 15, autoPotionStopEvent)
+-- Auto Rank (every 5 minutes)
+local function autoRank()
+    _G["RankedEnabled"] = autoRankEnabled
+    local args = {}
+    safeFireServer("Ranked", args, 300, 300, autoRankStopEvent)
+end
+
+-- Auto Instant Roll (every 20 minutes)
+local function autoRoll()
+    _G["RollEventEnabled"] = autoRollEnabled
+    local args = { [1] = "InstantBonus" }
+    safeFireServer("RollEvent", args, 1200, 1200, autoRollStopEvent)
 end
 
 -- Create UI
@@ -152,7 +129,7 @@ local MainSection = MainTab:CreateSection("Auto Features", false)
 -- Auto Claim Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Battlepass",
-    Info = "Automatically claims the battle pass when available.",
+    Info = "Automatically claims the battle pass every 2 minutes.",
     CurrentValue = false,
     Flag = "AutoClaim",
     Callback = function(Value)
@@ -160,7 +137,7 @@ MainTab:CreateToggle({
         if Value then
             autoClaim()
         else
-            autoClaimStopEvent:Fire() -- Stop the loop
+            autoClaimStopEvent:Fire()
         end
     end,
 })
@@ -197,45 +174,35 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Potion Toggle
+-- Auto Rank Toggle
 MainTab:CreateToggle({
-    Name = "Auto Buy Potion",
-    Info = "Automatically buys the selected potion.",
+    Name = "Auto Rank",
+    Info = "Automatically triggers rank every 5 minutes.",
     CurrentValue = false,
-    Flag = "AutoPotion",
+    Flag = "AutoRank",
     Callback = function(Value)
-        autoPotionEnabled = Value
+        autoRankEnabled = Value
         if Value then
-            autoPotion()
+            autoRank()
         else
-            autoPotionStopEvent:Fire()
+            autoRankStopEvent:Fire()
         end
     end,
 })
 
--- Potion Selection Dropdown
-MainTab:CreateDropdown({
-    Name = "Select Potion",
-    Options = {"Lucky Potion II", "Speed Potion II"},
-    CurrentOption = "Lucky Potion II",
-    MultiSelection = false,
-    Flag = "PotionType",
-    Callback = function(Option)
-        selectedPotion = Option
-    end,
-})
-
--- Potion Amount Slider
-MainTab:CreateSlider({
-    Name = "Potion Amount",
-    Info = "Set the number of potions to buy.",
-    Range = {1, 5},
-    Increment = 1,
-    Suffix = "Potions",
-    CurrentValue = 1,
-    Flag = "PotionAmount",
+-- Auto Instant Roll Toggle
+MainTab:CreateToggle({
+    Name = "Instant Roll",
+    Info = "Automatically triggers instant roll every 20 minutes.",
+    CurrentValue = false,
+    Flag = "AutoRoll",
     Callback = function(Value)
-        potionAmount = Value
+        autoRollEnabled = Value
+        if Value then
+            autoRoll()
+        else
+            autoRollStopEvent:Fire()
+        end
     end,
 })
 
