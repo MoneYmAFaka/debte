@@ -35,10 +35,9 @@ end
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
--- Safety checks
+-- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
@@ -52,130 +51,62 @@ end
 
 -- Toggle variables
 local autoClaimEnabled = false
-local autoRebirthEnabled = false
-local autoIndexEnabled = false
-local autoPotionEnabled = false
-local autoInstantRollEnabled = false
+local instantRollEnabled = false
 local autoRankEnabled = false
+local autoPotionEnabled = false
 
--- Stop events for each feature
-local autoClaimStopEvent = Instance.new("BindableEvent")
-local autoRebirthStopEvent = Instance.new("BindableEvent")
-local autoIndexStopEvent = Instance.new("BindableEvent")
-local autoPotionStopEvent = Instance.new("BindableEvent")
-local autoInstantRollStopEvent = Instance.new("BindableEvent")
-local autoRankStopEvent = Instance.new("BindableEvent")
-
--- Randomized delay function
-local function randomDelay(min, max)
-    return task.wait(min + math.random() * (max - min))
-end
-
--- Safe FireServer function
-local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
+-- Function to safely fire server events
+local function safeFireServer(remoteName, args)
     local remote = Remotes:FindFirstChild(remoteName)
     if not remote then
         warn("Remote " .. remoteName .. " not found.")
         return
     end
-    local connection
-    connection = stopEvent.Event:Connect(function()
-        connection:Disconnect()
+    pcall(function()
+        remote:FireServer(unpack(args))
     end)
-    task.spawn(function()
-        while true do
-            if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then
-                stopEvent:Fire()
-                break
-            end
-            pcall(function()
-                remote:FireServer(unpack(args))
-            end)
-            randomDelay(minDelay, maxDelay)
-            if not connection.Connected then break end
+end
+
+-- Auto Claim Battlepass (every 1 minute)
+task.spawn(function()
+    while true do
+        if autoClaimEnabled then
+            safeFireServer("Battlepass", { "Claim", "All" })
         end
-    end)
-end
+        task.wait(60) -- Wait 1 minute
+    end
+end)
 
--- Auto Claim Battle Pass (every 1 minute)
-local function autoClaim()
-    _G["BattlepassEnabled"] = autoClaimEnabled
-    task.spawn(function()
-        while autoClaimEnabled do
-            local remote = Remotes:FindFirstChild("Battlepass")
-            if remote then
-                pcall(function()
-                    remote:FireServer("Claim", "All")
-                end)
-                print("Auto-claimed battle pass!")
-            end
-            task.wait(60) -- Every 1 minute
+-- Instant Roll (every 15 minutes)
+task.spawn(function()
+    while true do
+        if instantRollEnabled then
+            safeFireServer("RollEvent", { "InstantBonus" })
         end
-    end)
-end
-
--- Auto Rebirth
-local function autoRebirth()
-    _G["RebirthEnabled"] = autoRebirthEnabled
-    safeFireServer("Rebirth", {}, 5, 7, autoRebirthStopEvent)
-end
-
--- Auto Index
-local function autoIndex()
-    _G["ClaimIndexEnabled"] = autoIndexEnabled
-    safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
-end
-
--- Auto Potion (no selection, just buy when toggled)
-local function autoPotion()
-    _G["PotionCraftEnabled"] = autoPotionEnabled
-    task.spawn(function()
-        while autoPotionEnabled do
-            local remote = Remotes:FindFirstChild("PotionCraft")
-            if remote then
-                pcall(function()
-                    remote:FireServer()
-                end)
-                print("Bought potion!")
-            end
-            task.wait(10) -- Adjust delay if needed
-        end
-    end)
-end
-
--- Auto Instant Roll (every 15 minutes)
-local function autoInstantRoll()
-    _G["InstantRollEnabled"] = autoInstantRollEnabled
-    task.spawn(function()
-        while autoInstantRollEnabled do
-            local remote = Remotes:FindFirstChild("RollEvent")
-            if remote then
-                pcall(function()
-                    remote:FireServer("InstantBonus")
-                end)
-                print("Instant Bonus triggered!")
-            end
-            task.wait(900) -- 15 minutes (900 seconds)
-        end
-    end)
-end
+        task.wait(900) -- Wait 15 minutes
+    end
+end)
 
 -- Auto Rank (every 1 minute)
-local function autoRank()
-    _G["RankedEnabled"] = autoRankEnabled
-    task.spawn(function()
-        while autoRankEnabled do
-            local remote = Remotes:FindFirstChild("Ranked")
-            if remote then
-                pcall(function()
-                    remote:FireServer()
-                end)
-                print("Auto-ranked up!")
-            end
-            task.wait(60) -- Every 1 minute
+task.spawn(function()
+    while true do
+        if autoRankEnabled then
+            safeFireServer("Ranked", {})
         end
-    end)
-end
+        task.wait(60) -- Wait 1 minute
+    end
+end)
+
+-- Auto Potion (Buys both potions instantly)
+task.spawn(function()
+    while true do
+        if autoPotionEnabled then
+            safeFireServer("PotionCraft", { "Lucky Potion II", false, 1 })
+            safeFireServer("PotionCraft", { "Speed Potion II", false, 1 })
+        end
+        task.wait(5) -- Wait 5 seconds before buying again
+    end
+end)
 
 -- Create UI
 local Window = Arrayfield:CreateWindow({
@@ -193,64 +124,74 @@ local Window = Arrayfield:CreateWindow({
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
 
+-- Auto Claim Battlepass Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Battlepass",
+    Info = "Automatically claims the battle pass every minute.",
     CurrentValue = false,
     Flag = "AutoClaim",
     Callback = function(Value)
         autoClaimEnabled = Value
-        if Value then autoClaim() else autoClaimStopEvent:Fire() end
     end,
 })
 
+-- Instant Roll Toggle
 MainTab:CreateToggle({
-    Name = "Auto Rebirth",
+    Name = "Instant Roll (15 min)",
+    Info = "Automatically triggers the Instant Bonus roll every 15 minutes.",
     CurrentValue = false,
-    Flag = "AutoRebirth",
+    Flag = "InstantRoll",
     Callback = function(Value)
-        autoRebirthEnabled = Value
-        if Value then autoRebirth() else autoRebirthStopEvent:Fire() end
+        instantRollEnabled = Value
     end,
 })
 
+-- Auto Rank Toggle
 MainTab:CreateToggle({
-    Name = "Auto Claim Index",
-    CurrentValue = false,
-    Flag = "AutoIndex",
-    Callback = function(Value)
-        autoIndexEnabled = Value
-        if Value then autoIndex() else autoIndexStopEvent:Fire() end
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Buy Potions",
-    CurrentValue = false,
-    Flag = "AutoPotion",
-    Callback = function(Value)
-        autoPotionEnabled = Value
-        if Value then autoPotion() else autoPotionStopEvent:Fire() end
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Instant Roll",
-    CurrentValue = false,
-    Flag = "AutoInstantRoll",
-    Callback = function(Value)
-        autoInstantRollEnabled = Value
-        if Value then autoInstantRoll() else autoInstantRollStopEvent:Fire() end
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Rank",
+    Name = "Auto Rank (1 min)",
+    Info = "Automatically ranks up every minute.",
     CurrentValue = false,
     Flag = "AutoRank",
     Callback = function(Value)
         autoRankEnabled = Value
-        if Value then autoRank() else autoRankStopEvent:Fire() end
     end,
 })
 
+-- Auto Potion Toggle
+MainTab:CreateToggle({
+    Name = "Auto Buy Potions",
+    Info = "Automatically buys Lucky & Speed Potions every 5 seconds.",
+    CurrentValue = false,
+    Flag = "AutoPotion",
+    Callback = function(Value)
+        autoPotionEnabled = Value
+    end,
+})
+
+-- Settings Tab
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
+local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
+
+-- Close UI Keybind
+SettingsTab:CreateInput({
+    Name = "Close UI Key",
+    Info = "Enter a key to close the UI (e.g., Q).",
+    PlaceholderText = "Enter Key",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local key = Enum.KeyCode[Text:upper()]
+        if key then
+            game:GetService("UserInputService").InputBegan:Connect(function(input)
+                if input.KeyCode == key then
+                    Window:Destroy()
+                    print("UI closed with key: " .. Text)
+                end
+            end)
+        else
+            warn("Invalid key entered: " .. Text)
+        end
+    end,
+})
+
+-- Notification Label
 MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
