@@ -1,34 +1,34 @@
--- Load Rayfield UI library with error handling and retries
-local function loadRayfield(maxRetries, delay)
-    local rayfieldUrl = "https://raw.githubusercontent.com/UI-Interface/Rayfield/main/source"
+-- Load Arrayfield UI library with error handling and retries
+local function loadArrayfield(maxRetries, delay)
+    local arrayfieldUrl = "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
     local attempt = 1
     local success, result
 
     while attempt <= maxRetries do
         success, result = pcall(function()
-            return game:HttpGet(rayfieldUrl)
+            return game:HttpGet(arrayfieldUrl)
         end)
         if success then
-            local loaded, Rayfield = pcall(loadstring(result))
-            if loaded and Rayfield then
-                print("Rayfield UI library loaded successfully on attempt " .. attempt)
-                return true, Rayfield
+            local loaded, Arrayfield = pcall(loadstring(result))
+            if loaded and Arrayfield then
+                print("Arrayfield UI library loaded successfully on attempt " .. attempt)
+                return true, Arrayfield
             else
-                warn("Failed to execute Rayfield script on attempt " .. attempt .. ": " .. tostring(Rayfield))
+                warn("Failed to execute Arrayfield script on attempt " .. attempt .. ": " .. tostring(Arrayfield))
             end
         else
-            warn("Failed to fetch Rayfield UI library on attempt " .. attempt .. ": " .. tostring(result))
+            warn("Failed to fetch Arrayfield UI library on attempt " .. attempt .. ": " .. tostring(result))
         end
         task.wait(delay)
         attempt = attempt + 1
     end
-    return false, "Failed to load Rayfield UI library after " .. maxRetries .. " attempts."
+    return false, "Failed to load Arrayfield UI library after " .. maxRetries .. " attempts."
 end
 
--- Attempt to load Rayfield with 3 retries, 2-second delay between attempts
-local success, Rayfield = loadRayfield(3, 2)
+-- Attempt to load Arrayfield with 3 retries, 2-second delay between attempts
+local success, Arrayfield = loadArrayfield(3, 2)
 if not success then
-    warn(Rayfield)
+    warn(Arrayfield)
     return
 end
 
@@ -106,7 +106,7 @@ local function autoPotion()
 end
 
 -- Create UI
-local Window = Rayfield:CreateWindow({
+local Window = Arrayfield:CreateWindow({
     Name = "Auto Features Hub",
     LoadingTitle = "Loading Interface",
     LoadingSubtitle = "by xAI",
@@ -119,50 +119,54 @@ local Window = Rayfield:CreateWindow({
 
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
-MainTab:CreateSection("Auto Features")
+local MainSection = MainTab:CreateSection("Auto Features", false)
 
 -- Auto Claim Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Battlepass",
+    Info = "Automatically claims the battle pass when available.",
     CurrentValue = false,
     Flag = "AutoClaim",
     Callback = function(Value)
         autoClaimEnabled = Value
         if Value then autoClaim() end
-    end
+    end,
 })
 
 -- Auto Rebirth Toggle
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
+    Info = "Automatically rebirths when available.",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
         autoRebirthEnabled = Value
         if Value then autoRebirth() end
-    end
+    end,
 })
 
 -- Auto Index Toggle
 MainTab:CreateToggle({
     Name = "Auto Claim Index",
+    Info = "Automatically claims index when available.",
     CurrentValue = false,
     Flag = "AutoIndex",
     Callback = function(Value)
         autoIndexEnabled = Value
         if Value then autoIndex() end
-    end
+    end,
 })
 
 -- Auto Potion Toggle
 MainTab:CreateToggle({
     Name = "Auto Buy Potion",
+    Info = "Automatically buys the selected potion.",
     CurrentValue = false,
     Flag = "AutoPotion",
     Callback = function(Value)
         autoPotionEnabled = Value
         if Value then autoPotion() end
-    end
+    end,
 })
 
 -- Potion Selection Dropdown
@@ -170,15 +174,17 @@ MainTab:CreateDropdown({
     Name = "Select Potion",
     Options = {"Lucky Potion II", "Speed Potion II"},
     CurrentOption = "Lucky Potion II",
+    MultiSelection = false,
     Flag = "PotionType",
     Callback = function(Option)
         selectedPotion = Option
-    end
+    end,
 })
 
 -- Potion Amount Slider
 MainTab:CreateSlider({
     Name = "Potion Amount",
+    Info = "Set the number of potions to buy.",
     Range = {1, 5},
     Increment = 1,
     Suffix = "Potions",
@@ -186,40 +192,33 @@ MainTab:CreateSlider({
     Flag = "PotionAmount",
     Callback = function(Value)
         potionAmount = Value
-    end
+    end,
 })
 
 -- Settings Tab
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
-SettingsTab:CreateSection("UI Settings")
+local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
 
 -- Close Keybind
 SettingsTab:CreateInput({
     Name = "Close UI Key",
-    PlaceholderText = "Enter Key (e.g., Q)",
+    Info = "Enter a key to close the UI (e.g., Q).",
+    PlaceholderText = "Enter Key",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
             UserInputService.InputBegan:Connect(function(input)
                 if input.KeyCode == key then
-                    Rayfield:Destroy()
+                    Window:Destroy()
+                    print("UI closed with key: " .. Text)
                 end
             end)
+        else
+            warn("Invalid key entered: " .. Text)
         end
-    end
+    end,
 })
 
--- Notification
-Rayfield:Notify({
-    Title = "Auto Features Loaded",
-    Content = "All features are ready to use!",
-    Duration = 5,
-    Image = 4483362458,
-    Actions = {
-        Ignore = {
-            Name = "OK",
-            Callback = function() end
-        }
-    }
-})
+-- Notification (Arrayfield doesn't have a Notify function, so we'll use a label instead)
+MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
