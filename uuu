@@ -1,195 +1,197 @@
--- Load the Rayfield UI library
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
-
--- Services
-local Players = game:GetService("Players")
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
 
--- Local player and character
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
+-- Variables to control toggles
+local autoClaimEnabled = false
+local autoRebirthEnabled = false
+local autoIndexEnabled = false
+local autoPotionEnabled = false
+local selectedPotion = "Lucky Potion II"
+local potionAmount = 1
 
--- Create the UI window
+-- Function to handle delays and prevent spamming
+local function safeFireServer(remote, args, delay)
+    task.spawn(function()
+        while true do
+            if not remote:IsDescendantOf(ReplicatedStorage) then break end
+            pcall(function()
+                remote:FireServer(unpack(args))
+            end)
+            task.wait(delay)
+        end
+    end)
+end
+
+-- Auto Claim Function
+local function autoClaim()
+    task.spawn(function()
+        while autoClaimEnabled do
+            local args = { [1] = "Claim", [2] = "All" }
+            pcall(function()
+                Remotes:WaitForChild("Battlepass", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(5) -- Check every 5 seconds
+        end
+    end)
+end
+
+-- Auto Rebirth Function
+local function autoRebirth()
+    task.spawn(function()
+        while autoRebirthEnabled do
+            local args = {}
+            pcall(function()
+                Remotes:WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(5) -- Check every 5 seconds
+        end
+    end)
+end
+
+-- Auto Index Function
+local function autoIndex()
+    task.spawn(function()
+        while autoIndexEnabled do
+            local args = {}
+            pcall(function()
+                Remotes:WaitForChild("ClaimIndex", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(5) -- Check every 5 seconds
+        end
+    end)
+end
+
+-- Auto Potion Function
+local function autoPotion()
+    task.spawn(function()
+        while autoPotionEnabled do
+            local args = { [1] = selectedPotion, [2] = false, [3] = potionAmount }
+            pcall(function()
+                Remotes:WaitForChild("PotionCraft", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(10) -- Slower delay for buying potions to avoid spam
+        end
+    end)
+end
+
+-- Create UI
 local Window = Rayfield:CreateWindow({
-   Name = "Auto Chest Collector",
-   LoadingTitle = "Arrayfield Interface Suite",
-   LoadingSubtitle = "by Arrays",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = nil,
-      FileName = "Arrayfield"
-   }
+    Name = "Auto Features Hub",
+    LoadingTitle = "Loading Interface",
+    LoadingSubtitle = "by xAI",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "AutoHub",
+        FileName = "Config"
+    }
 })
 
--- Create a tab for the auto chest feature
-local Tab = Window:CreateTab("Chest Collector", 4483362458)
+-- Main Tab
+local MainTab = Window:CreateTab("Main", 4483362458)
 
--- Create a section for the toggle
-local Section = Tab:CreateSection("Auto Collect", false)
+MainTab:CreateSection("Auto Features")
 
--- Chest models from the image
-local chestModels = {"box_blue", "box_gold"}
-
--- Event arguments for firing to the server
-local eventArgs = {
-    [1] = {
-        [1] = "bb32e050-7723-419b-9ff8-905fcadfdbf5"
-    },
-    [2] = {
-        [1] = "f606084e-edfa-4620-adf0-0952b24e7389"
-    },
-    [3] = {
-        [1] = "04addcf0-717e-46c5-bec7-883c728743a1"
-    }
-}
-
--- Cache chests to avoid frequent GetDescendants calls
-local cachedChests = {}
-
-local function updateChestCache()
-    cachedChests = {}
-    for _, model in pairs(workspace:GetDescendants()) do
-        if model:IsA("Model") and table.find(chestModels, model.Name) then
-            local collectTrigger = model:FindFirstChild("COLLECT_TRIGGER")
-            if collectTrigger and collectTrigger:IsA("BasePart") and collectTrigger:FindFirstChild("TouchInterest") then
-                table.insert(cachedChests, {Model = model, Trigger = collectTrigger})
-            end
-        end
+-- Auto Claim Toggle
+MainTab:CreateToggle({
+    Name = "Auto Claim Battlepass",
+    CurrentValue = false,
+    Flag = "AutoClaim",
+    Callback = function(Value)
+        autoClaimEnabled = Value
+        if Value then autoClaim() end
     end
-end
+})
 
--- Initial cache update
-updateChestCache()
-
--- Update cache when new objects are added to workspace
-workspace.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("Model") and table.find(chestModels, descendant.Name) then
-        updateChestCache()
+-- Auto Rebirth Toggle
+MainTab:CreateToggle({
+    Name = "Auto Rebirth",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        autoRebirthEnabled = Value
+        if Value then autoRebirth() end
     end
-end)
+})
 
-workspace.DescendantRemoving:Connect(function(descendant)
-    if descendant:IsA("Model") and table.find(chestModels, descendant.Name) then
-        updateChestCache()
+-- Auto Index Toggle
+MainTab:CreateToggle({
+    Name = "Auto Claim Index",
+    CurrentValue = false,
+    Flag = "AutoIndex",
+    Callback = function(Value)
+        autoIndexEnabled = Value
+        if Value then autoIndex() end
     end
-end)
+})
 
--- Function to fire the server event
-local function fireEvent(arg)
-    ReplicatedStorage:WaitForChild("KP4", 9e9):WaitForChild("f2f132db-0122-4698-97dd-8256df209691", 9e9):FireServer(unpack(arg))
-end
-
--- Function to simulate 5 screen taps (improved for mobile)
-local function simulateTaps()
-    for i = 1, 5 do
-        local touchPosition = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
-        local touchData = {
-            Position = touchPosition,
-            UserInputType = Enum.UserInputType.Touch,
-            UserInputState = Enum.UserInputState.Begin
-        }
-        UserInputService.InputBegan:Fire(touchData, false)
-        wait(0.05)
-        touchData.UserInputState = Enum.UserInputState.End
-        UserInputService.InputEnded:Fire(touchData, false)
-        wait(0.05)
+-- Auto Potion Toggle
+MainTab:CreateToggle({
+    Name = "Auto Buy Potion",
+    CurrentValue = false,
+    Flag = "AutoPotion",
+    Callback = function(Value)
+        autoPotionEnabled = Value
+        if Value then autoPotion() end
     end
-end
+})
 
--- Function to glide the character to a target position
-local function glideToPosition(targetPosition)
-    local distance = (rootPart.Position - targetPosition).Magnitude
-    local speed = 20
-    local direction = (targetPosition - rootPart.Position).Unit
-    local timeToReach = distance / speed
-
-    humanoid.WalkSpeed = 0
-    local elapsedTime = 0
-    local steps = 10 -- Reduce the number of updates
-    local stepTime = timeToReach / steps
-
-    for i = 1, steps do
-        if not character or not rootPart or not humanoid then break end
-        elapsedTime = elapsedTime + stepTime
-        local alpha = elapsedTime / timeToReach
-        local newPosition = rootPart.Position:Lerp(targetPosition, alpha)
-        rootPart.CFrame = CFrame.new(newPosition, newPosition + direction)
-        wait(stepTime)
+-- Potion Selection Dropdown
+MainTab:CreateDropdown({
+    Name = "Select Potion",
+    Options = {"Lucky Potion II", "Speed Potion II"},
+    CurrentOption = "Lucky Potion II",
+    Flag = "PotionType",
+    Callback = function(Option)
+        selectedPotion = Option
     end
+})
 
-    rootPart.CFrame = CFrame.new(targetPosition)
-    humanoid.WalkSpeed = 16
-end
-
--- Function to find the nearest chest from the cache
-local function findNearestChest()
-    local closestTrigger = nil
-    local closestDistance = math.huge
-
-    for _, chest in pairs(cachedChests) do
-        local trigger = chest.Trigger
-        if trigger and trigger.Parent and trigger:FindFirstChild("TouchInterest") then
-            local distance = (rootPart.Position - trigger.Position).Magnitude
-            if distance < closestDistance then
-                closestDistance = distance
-                closestTrigger = trigger
-            end
-        end
+-- Potion Amount Slider
+MainTab:CreateSlider({
+    Name = "Potion Amount",
+    Range = {1, 10},
+    Increment = 1,
+    Suffix = "Potions",
+    CurrentValue = 1,
+    Flag = "PotionAmount",
+    Callback = function(Value)
+        potionAmount = Value
     end
+})
 
-    return closestTrigger, closestDistance
-end
+-- Settings Tab
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
 
--- Toggleable auto-collect loop
-local autoCollectEnabled = false
-local connection
-local lastCollectTime = 0
-local collectCooldown = 1 -- 1 second cooldown between collections
+SettingsTab:CreateSection("UI Settings")
 
-local Toggle = Tab:CreateToggle({
-   Name = "Auto Chest Collect",
-   Info = "Toggles automatic chest collection.",
-   CurrentValue = false,
-   Flag = "AutoChestToggle",
-   Callback = function(Value)
-      autoCollectEnabled = Value
-
-      if autoCollectEnabled then
-         connection = RunService.Heartbeat:Connect(function()
-            if not autoCollectEnabled then return end
-
-            -- Throttle the loop to run every 0.5 seconds
-            if tick() - lastCollectTime < 0.5 then return end
-
-            character = player.Character
-            if not character then return end
-            rootPart = character:WaitForChild("HumanoidRootPart")
-            humanoid = character:WaitForChild("Humanoid")
-
-            local nearestTrigger, distance = findNearestChest()
-
-            if nearestTrigger and distance <= 100 and tick() - lastCollectTime >= collectCooldown then
-                glideToPosition(nearestTrigger.Position)
-
-                for _, arg in ipairs(eventArgs) do
-                    fireEvent(arg)
-                    wait(0.1)
+-- Close Keybind
+SettingsTab:CreateInput({
+    Name = "Close UI Key",
+    PlaceholderText = "Enter Key (e.g., Q)",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local key = Enum.KeyCode[Text:upper()]
+        if key then
+            game:GetService("UserInputService").InputBegan:Connect(function(input)
+                if input.KeyCode == key then
+                    Rayfield:Destroy()
                 end
+            end)
+        end
+    end
+})
 
-                simulateTaps()
-                lastCollectTime = tick()
-                updateChestCache() -- Update cache after collecting
-            end
-         end)
-      else
-         if connection then
-            connection:Disconnect()
-         end
-         humanoid.WalkSpeed = 16
-      end
-   end,
+-- Notification
+Rayfield:Notify({
+    Title = "Auto Features Loaded",
+    Content = "All features are ready to use!",
+    Duration = 5,
+    Image = 4483362458,
+    Actions = {
+        Ignore = {
+            Name = "OK",
+            Callback = function() end
+        }
+    }
 })
