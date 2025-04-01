@@ -102,7 +102,7 @@ end
 -- Auto Potion
 local function autoPotion()
     _G["PotionCraftEnabled"] = autoPotionEnabled
-    safeFireServer("PotionCraft", { [1] = selectedPotion, [2] = false, [3] = potionAmount }, 10, 15)
+    safeFireServer("PotionCraft", { [1] = "SelectedPotion", [2] = false, [3] = potionAmount }, 10, 15)
 end
 
 -- Create UI
@@ -116,6 +116,20 @@ local Window = Arrayfield:CreateWindow({
         FileName = "Config"
     }
 })
+
+-- Fix UISizeConstraint issue
+local function fixUISizeConstraints(window)
+    for _, element in pairs(window:GetDescendants()) do
+        if element:IsA("UISizeConstraint") then
+            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
+                element.MaxSize = Vector2.new(
+                    math.max(element.MaxSize.X, element.MinSize.X),
+                    math.max(element.MaxSize.Y, element.MinSize.Y)
+                )
+            end
+        end
+    end
+end
 
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
@@ -219,6 +233,9 @@ SettingsTab:CreateInput({
         end
     end,
 })
+
+-- Apply the fix after creating all UI elements
+fixUISizeConstraints(Window)
 
 -- Notification (Arrayfield doesn't have a Notify function, so we'll use a label instead)
 MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
