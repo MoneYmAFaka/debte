@@ -24,14 +24,12 @@ local autoClaimEnabled = false
 local autoRebirthEnabled = false
 local autoIndexEnabled = false
 local autoRankEnabled = false
-local autoRollEnabled = false
 
 -- Stop events for each feature
 local autoClaimStopEvent = Instance.new("BindableEvent")
 local autoRebirthStopEvent = Instance.new("BindableEvent")
 local autoIndexStopEvent = Instance.new("BindableEvent")
 local autoRankStopEvent = Instance.new("BindableEvent")
-local autoRollStopEvent = Instance.new("BindableEvent")
 
 -- Randomized delay function to mimic human behavior
 local function randomDelay(min, max)
@@ -70,10 +68,24 @@ local function autoClaim()
     safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 120, 120, autoClaimStopEvent)
 end
 
--- Auto Rebirth
+-- Auto Rebirth (modified to prevent shop popup)
 local function autoRebirth()
     _G["RebirthEnabled"] = autoRebirthEnabled
-    safeFireServer("Rebirth", {}, 5, 7, autoRebirthStopEvent)
+    local rebirthRemote = Remotes:FindFirstChild("Rebirth")
+    if not rebirthRemote then
+        warn("Rebirth remote not found.")
+        return
+    end
+    task.spawn(function()
+        while autoRebirthEnabled do
+            pcall(function()
+                -- Fire the rebirth remote without triggering shop UI
+                rebirthRemote:FireServer()
+            end)
+            randomDelay(5, 7)
+            if not autoRebirthEnabled then break end
+        end
+    end)
 end
 
 -- Auto Index
@@ -87,13 +99,6 @@ local function autoRank()
     _G["RankedEnabled"] = autoRankEnabled
     local args = {}
     safeFireServer("Ranked", args, 300, 300, autoRankStopEvent)
-end
-
--- Auto Instant Roll (every 20 minutes)
-local function autoRoll()
-    _G["RollEventEnabled"] = autoRollEnabled
-    local args = { [1] = "InstantBonus" }
-    safeFireServer("RollEvent", args, 1200, 1200, autoRollStopEvent)
 end
 
 -- Create UI
@@ -145,7 +150,7 @@ MainTab:CreateToggle({
 -- Auto Rebirth Toggle
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
-    Info = "Automatically rebirths when available.",
+    Info = "Automatically rebirths when available (no shop popup).",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
@@ -190,22 +195,6 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Instant Roll Toggle
-MainTab:CreateToggle({
-    Name = "Instant Roll",
-    Info = "Automatically triggers instant roll every 20 minutes.",
-    CurrentValue = false,
-    Flag = "AutoRoll",
-    Callback = function(Value)
-        autoRollEnabled = Value
-        if Value then
-            autoRoll()
-        else
-            autoRollStopEvent:Fire()
-        end
-    end,
-})
-
 -- Settings Tab
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
@@ -234,5 +223,5 @@ SettingsTab:CreateInput({
 -- Apply the fix after creating all UI elements
 fixUISizeConstraints(Window)
 
--- Notification (Arrayfield doesn't have a Notify function, so we'll use a label instead)
+-- Notification
 MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
