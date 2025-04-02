@@ -5,6 +5,7 @@ local Arrayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/UI
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
 -- Safety checks
@@ -23,13 +24,13 @@ end
 local autoClaimEnabled = false
 local autoRebirthEnabled = false
 local autoIndexEnabled = false
-local autoRankEnabled = false
+local antiAfkEnabled = false
 
 -- Stop events for each feature
 local autoClaimStopEvent = Instance.new("BindableEvent")
 local autoRebirthStopEvent = Instance.new("BindableEvent")
 local autoIndexStopEvent = Instance.new("BindableEvent")
-local autoRankStopEvent = Instance.new("BindableEvent")
+local antiAfkStopEvent = Instance.new("BindableEvent")
 
 -- Randomized delay function to mimic human behavior
 local function randomDelay(min, max)
@@ -94,11 +95,17 @@ local function autoIndex()
     safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
 end
 
--- Auto Rank (every 5 minutes)
-local function autoRank()
-    _G["RankedEnabled"] = autoRankEnabled
-    local args = {}
-    safeFireServer("Ranked", args, 300, 300, autoRankStopEvent)
+-- Anti-AFK function
+local function antiAfk()
+    task.spawn(function()
+        while antiAfkEnabled do
+            -- Simulate player activity using VirtualUser
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new()) -- Simulates a right-click
+            randomDelay(60, 120) -- Random delay between 1-2 minutes
+            if not antiAfkEnabled then break end
+        end
+    end)
 end
 
 -- Create UI
@@ -179,22 +186,6 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Rank Toggle
-MainTab:CreateToggle({
-    Name = "Auto Rank",
-    Info = "Automatically triggers rank every 5 minutes.",
-    CurrentValue = false,
-    Flag = "AutoRank",
-    Callback = function(Value)
-        autoRankEnabled = Value
-        if Value then
-            autoRank()
-        else
-            autoRankStopEvent:Fire()
-        end
-    end,
-})
-
 -- Settings Tab
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
@@ -216,6 +207,22 @@ SettingsTab:CreateInput({
             end)
         else
             warn("Invalid key entered: " .. Text)
+        end
+    end,
+})
+
+-- Anti-AFK Toggle
+SettingsTab:CreateToggle({
+    Name = "Anti-AFK",
+    Info = "Prevents being kicked for idling by simulating activity.",
+    CurrentValue = false,
+    Flag = "AntiAFK",
+    Callback = function(Value)
+        antiAfkEnabled = Value
+        if Value then
+            antiAfk()
+        else
+            antiAfkStopEvent:Fire()
         end
     end,
 })
