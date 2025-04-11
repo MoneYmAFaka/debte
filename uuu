@@ -75,7 +75,7 @@ end
 -- Auto Hatch Egg
 local function autoHatchEgg()
     _G["HatchEggEnabled"] = autoHatchEggEnabled
-    local args = { [1] = "HatchEgg", [2] = "Infinity Egg", [3] = 1 }
+    local args = { [1] = "HatchEgg", [2] = "Infinity Egg", [3] = 2 }
     safeFireServer(args, "fixed", 3, nil, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
