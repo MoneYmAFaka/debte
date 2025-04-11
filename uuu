@@ -3,9 +3,8 @@ local Arrayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/UI
 
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local VirtualUser = game:GetService("VirtualUser")
+local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 -- Safety checks
@@ -14,48 +13,33 @@ if not LocalPlayer then
     return
 end
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
-if not Remotes then
-    warn("Remotes not found in ReplicatedStorage.")
-    return
-end
-
 -- Toggle variables
-local autoClaimEnabled = false
-local autoRebirthEnabled = false
-local autoIndexEnabled = false
-local antiAfkEnabled = false
+local autoSellBubbleEnabled = false
+local autoHatchEggEnabled = false
 
--- Stop events for each feature
-local autoClaimStopEvent = Instance.new("BindableEvent")
-local autoRebirthStopEvent = Instance.new("BindableEvent")
-local autoIndexStopEvent = Instance.new("BindableEvent")
-local antiAfkStopEvent = Instance.new("BindableEvent")
+-- Stop events
+local autoSellBubbleStopEvent = Instance.new("BindableEvent")
+local autoHatchEggStopEvent = Instance.new("BindableEvent")
 
--- Randomized delay function to mimic human behavior
+-- Randomized delay function
 local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer with existence check and stop event
-local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
-    local remote = Remotes:FindFirstChild(remoteName)
-    if not remote then
-        warn("Remote " .. remoteName .. " not found.")
-        return
-    end
+-- Safe FireServer function
+local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
     local connection
     connection = stopEvent.Event:Connect(function()
         connection:Disconnect()
     end)
     task.spawn(function()
         while true do
-            if not _G[remoteName .. "Enabled"] or not remote:IsDescendantOf(ReplicatedStorage) then
+            if not _G[toggleFlag] then
                 stopEvent:Fire()
                 break
             end
             pcall(function()
-                remote:FireServer(unpack(args))
+                game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
             end)
             randomDelay(minDelay, maxDelay)
             if not connection.Connected then break end
@@ -63,49 +47,19 @@ local function safeFireServer(remoteName, args, minDelay, maxDelay, stopEvent)
     end)
 end
 
--- Auto Claim (every 2 minutes)
-local function autoClaim()
-    _G["BattlepassEnabled"] = autoClaimEnabled
-    safeFireServer("Battlepass", { [1] = "Claim", [2] = "All" }, 120, 120, autoClaimStopEvent)
+-- Auto Sell Bubble
+local function autoSellBubble()
+    _G["SellBubbleEnabled"] = autoSellBubbleEnabled
+    local args = { [1] = "SellBubble" }
+    safeFireServer(args, 5, 7, autoSellBubbleStopEvent, "SellBubbleEnabled")
 end
 
--- Auto Rebirth (modified to prevent shop popup)
-local function autoRebirth()
-    _G["RebirthEnabled"] = autoRebirthEnabled
-    local rebirthRemote = Remotes:FindFirstChild("Rebirth")
-    if not rebirthRemote then
-        warn("Rebirth remote not found.")
-        return
-    end
-    task.spawn(function()
-        while autoRebirthEnabled do
-            pcall(function()
-                -- Fire the rebirth remote without triggering shop UI
-                rebirthRemote:FireServer()
-            end)
-            randomDelay(5, 7)
-            if not autoRebirthEnabled then break end
-        end
-    end)
-end
-
--- Auto Index
-local function autoIndex()
-    _G["ClaimIndexEnabled"] = autoIndexEnabled
-    safeFireServer("ClaimIndex", {}, 5, 7, autoIndexStopEvent)
-end
-
--- Anti-AFK function
-local function antiAfk()
-    task.spawn(function()
-        while antiAfkEnabled do
-            -- Simulate player activity using VirtualUser
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new()) -- Simulates a right-click
-            randomDelay(60, 120) -- Random delay between 1-2 minutes
-            if not antiAfkEnabled then break end
-        end
-    end)
+-- Auto Hatch Egg
+local selectedEgg = "Iceshard Egg" -- Default egg
+local function autoHatchEgg()
+    _G["HatchEggEnabled"] = autoHatchEggEnabled
+    local args = { [1] = "HatchEgg", [2] = selectedEgg, [3] = 1 }
+    safeFireServer(args, 5, 7, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
 -- Create UI
@@ -138,50 +92,50 @@ end
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
 
--- Auto Claim Toggle
+-- Auto Sell Bubble Toggle
 MainTab:CreateToggle({
-    Name = "Auto Claim Battlepass",
-    Info = "Automatically claims the battle pass every 2 minutes.",
+    Name = "Auto Sell Bubble",
+    Info = "Automatically sells bubbles.",
     CurrentValue = false,
-    Flag = "AutoClaim",
+    Flag = "AutoSellBubble",
     Callback = function(Value)
-        autoClaimEnabled = Value
+        autoSellBubbleEnabled = Value
         if Value then
-            autoClaim()
+            autoSellBubble()
         else
-            autoClaimStopEvent:Fire()
+            autoSellBubbleStopEvent:Fire()
         end
     end,
 })
 
--- Auto Rebirth Toggle
+-- Auto Hatch Egg Toggle
 MainTab:CreateToggle({
-    Name = "Auto Rebirth",
-    Info = "Automatically rebirths when available (no shop popup).",
+    Name = "Auto Hatch Egg",
+    Info = "Automatically hatches selected egg.",
     CurrentValue = false,
-    Flag = "AutoRebirth",
+    Flag = "AutoHatchEgg",
     Callback = function(Value)
-        autoRebirthEnabled = Value
+        autoHatchEggEnabled = Value
         if Value then
-            autoRebirth()
+            autoHatchEgg()
         else
-            autoRebirthStopEvent:Fire()
+            autoHatchEggStopEvent:Fire()
         end
     end,
 })
 
--- Auto Index Toggle
-MainTab:CreateToggle({
-    Name = "Auto Claim Index",
-    Info = "Automatically claims index when available.",
-    CurrentValue = false,
-    Flag = "AutoIndex",
-    Callback = function(Value)
-        autoIndexEnabled = Value
-        if Value then
-            autoIndex()
-        else
-            autoIndexStopEvent:Fire()
+-- Egg Selection Dropdown
+MainTab:CreateDropdown({
+    Name = "Select Egg",
+    Info = "Choose which egg to hatch automatically.",
+    Options = {"Iceshard Egg", "Spotted Egg", "Common Egg", "Spikey Egg"},
+    CurrentOption = "Iceshard Egg",
+    Flag = "SelectedEgg",
+    Callback = function(Option)
+        selectedEgg = Option
+        if autoHatchEggEnabled then
+            autoHatchEggStopEvent:Fire()
+            autoHatchEgg()
         end
     end,
 })
@@ -190,39 +144,27 @@ MainTab:CreateToggle({
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
 
--- Close Keybind
+-- Close Keybind (Default E)
+local closeKey = Enum.KeyCode.E
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == closeKey then
+        Window:Destroy()
+        print("UI closed with key: E")
+    end
+end)
+
 SettingsTab:CreateInput({
     Name = "Close UI Key",
-    Info = "Enter a key to close the UI (e.g., Q).",
+    Info = "Enter a key to close the UI (default: E).",
     PlaceholderText = "Enter Key",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
-            UserInputService.InputBegan:Connect(function(input)
-                if input.KeyCode == key then
-                    Window:Destroy()
-                    print("UI closed with key: " .. Text)
-                end
-            end)
+            closeKey = key
+            print("Close UI key set to: " .. Text)
         else
             warn("Invalid key entered: " .. Text)
-        end
-    end,
-})
-
--- Anti-AFK Toggle
-SettingsTab:CreateToggle({
-    Name = "Anti-AFK",
-    Info = "Prevents being kicked for idling by simulating activity.",
-    CurrentValue = false,
-    Flag = "AntiAFK",
-    Callback = function(Value)
-        antiAfkEnabled = Value
-        if Value then
-            antiAfk()
-        else
-            antiAfkStopEvent:Fire()
         end
     end,
 })
