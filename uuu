@@ -62,26 +62,6 @@ local function autoHatchEgg()
     safeFireServer(args, 5, 7, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
--- Loader function for GitHub script
-local function loadGitHubScript()
-    local success, result = pcall(function()
-        local scriptUrl = "https://raw.githubusercontent.com/MoneYmAFaka/debte/refs/heads/main/uuu"
-        local scriptContent = game:HttpGet(scriptUrl)
-        local loadedFunction = loadstring(scriptContent)
-        if loadedFunction then
-            loadedFunction()
-            return "Script loaded successfully!"
-        else
-            return "Failed to load script: Invalid script content."
-        end
-    end)
-    if not success then
-        warn("Error loading script: " .. result)
-        return "Error loading script: " .. result
-    end
-    return result
-end
-
 -- Create UI
 local Window = Arrayfield:CreateWindow({
     Name = "Auto Features Hub",
@@ -111,16 +91,6 @@ end
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
-
--- Loader Button
-MainTab:CreateButton({
-    Name = "Load GitHub Script",
-    Info = "Loads the script from GitHub.",
-    Callback = function()
-        local result = loadGitHubScript()
-        MainTab:CreateLabel(result, MainSection)
-    end,
-})
 
 -- Auto Sell Bubble Toggle
 MainTab:CreateToggle({
