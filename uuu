@@ -23,18 +23,18 @@ local autoSellBubbleStopEvent = Instance.new("BindableEvent")
 local autoHatchEggStopEvent = Instance.new("BindableEvent")
 local autoTapStopEvent = Instance.new("BindableEvent")
 
--- Randomized delay function
+-- Randomized delay function (used for Tap and Sell)
 local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer function with debugging
-local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
-    local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Shared", true)
-    if not remote then
-        warn("Remote path not found at ReplicatedStorage:Shared:Framework:Network:Remote:Event")
-        return
-    end
+-- Fixed delay for Auto Hatch
+local function fixedDelay(seconds)
+    return task.wait(seconds)
+end
+
+-- Safe FireServer function without logs
+local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, toggleFlag)
     local connection
     connection = stopEvent.Event:Connect(function()
         connection:Disconnect()
@@ -45,40 +45,38 @@ local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
                 stopEvent:Fire()
                 break
             end
-            local success, errorMsg = pcall(function()
+            pcall(function()
                 game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
             end)
-            if not success then
-                warn("Failed to fire remote with args: " .. tostring(args[1]) .. ", Error: " .. errorMsg)
+            if delayType == "fixed" then
+                fixedDelay(minDelay)
             else
-                print("Fired remote with args: " .. tostring(args[1]))
+                randomDelay(minDelay, maxDelay)
             end
-            randomDelay(minDelay, maxDelay)
             if not connection.Connected then break end
         end
     end)
 end
 
--- Auto Tap (reverted to BlowBubble)
+-- Auto Tap (BlowBubble)
 local function autoTap()
     _G["BlowBubbleEnabled"] = autoTapEnabled
     local args = { [1] = "BlowBubble" }
-    safeFireServer(args, 0.2, 0.4, autoTapStopEvent, "BlowBubbleEnabled")
+    safeFireServer(args, "random", 0.2, 0.4, autoTapStopEvent, "BlowBubbleEnabled")
 end
 
 -- Auto Sell Bubble
 local function autoSellBubble()
     _G["SellBubbleEnabled"] = autoSellBubbleEnabled
     local args = { [1] = "SellBubble" }
-    safeFireServer(args, 5, 7, autoSellBubbleStopEvent, "SellBubbleEnabled")
+    safeFireServer(args, "random", 5, 7, autoSellBubbleStopEvent, "SellBubbleEnabled")
 end
 
 -- Auto Hatch Egg
 local function autoHatchEgg()
     _G["HatchEggEnabled"] = autoHatchEggEnabled
     local args = { [1] = "HatchEgg", [2] = "Infinity Egg", [3] = 1 }
-    print("Attempting to hatch Infinity Egg")
-    safeFireServer(args, 5, 7, autoHatchEggStopEvent, "HatchEggEnabled")
+    safeFireServer(args, "fixed", 3, nil, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
 -- Create UI
