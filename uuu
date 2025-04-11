@@ -1,5 +1,14 @@
--- Load Arrayfield UI library
-local Arrayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
+-- Load Arrayfield UI library with error handling
+local Arrayfield
+local success, result = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
+end)
+
+if not success then
+    warn("Failed to load Arrayfield UI library: " .. tostring(result))
+    return -- Stop the script if the UI library fails to load
+end
+Arrayfield = success and result or nil
 
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -166,7 +175,7 @@ local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
         Window:Destroy()
-    end)
+    end
 end)
 
 SettingsTab:CreateInput({
