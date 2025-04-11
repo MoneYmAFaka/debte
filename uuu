@@ -7,7 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Safety checks
+-- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
@@ -33,7 +33,7 @@ local function fixedDelay(seconds)
     return task.wait(seconds)
 end
 
--- Safe FireServer function without logs
+-- Safe FireServer function with no logs
 local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, toggleFlag)
     local connection
     connection = stopEvent.Event:Connect(function()
@@ -166,8 +166,7 @@ local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
         Window:Destroy()
-        print("UI closed with key: E")
-    end
+    end)
 end)
 
 SettingsTab:CreateInput({
@@ -179,9 +178,6 @@ SettingsTab:CreateInput({
         local key = Enum.KeyCode[Text:upper()]
         if key then
             closeKey = key
-            print("Close UI key set to: " .. Text)
-        else
-            warn("Invalid key entered: " .. Text)
         end
     end,
 })
