@@ -59,11 +59,11 @@ local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
     end)
 end
 
--- Auto Tap (BlowBubble)
+-- Auto Tap (reverted to BlowBubble)
 local function autoTap()
     _G["BlowBubbleEnabled"] = autoTapEnabled
     local args = { [1] = "BlowBubble" }
-    safeFireServer(args, 0.5, 1, autoTapStopEvent, "BlowBubbleEnabled")
+    safeFireServer(args, 0.2, 0.4, autoTapStopEvent, "BlowBubbleEnabled")
 end
 
 -- Auto Sell Bubble
@@ -76,8 +76,8 @@ end
 -- Auto Hatch Egg
 local function autoHatchEgg()
     _G["HatchEggEnabled"] = autoHatchEggEnabled
-    local args = { [1] = "HatchEgg", [2] = "Crystal Egg", [3] = 1 }
-    print("Attempting to hatch Crystal Egg")
+    local args = { [1] = "HatchEgg", [2] = "Infinity Egg", [3] = 1 }
+    print("Attempting to hatch Infinity Egg")
     safeFireServer(args, 5, 7, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
@@ -145,8 +145,8 @@ MainTab:CreateToggle({
 
 -- Auto Hatch Egg Toggle
 MainTab:CreateToggle({
-    Name = "Auto Hatch Crystal Egg",
-    Info = "Automatically hatches Crystal Egg.",
+    Name = "Auto Hatch Infinity Egg",
+    Info = "Automatically hatches Infinity Egg.",
     CurrentValue = false,
     Flag = "AutoHatchEgg",
     Callback = function(Value)
