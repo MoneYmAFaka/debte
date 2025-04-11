@@ -28,8 +28,13 @@ local function randomDelay(min, max)
     return task.wait(min + math.random() * (max - min))
 end
 
--- Safe FireServer function
+-- Safe FireServer function with debugging
 local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
+    local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Shared", true)
+    if not remote then
+        warn("Remote path not found at ReplicatedStorage:Shared:Framework:Network:Remote:Event")
+        return
+    end
     local connection
     connection = stopEvent.Event:Connect(function()
         connection:Disconnect()
@@ -40,9 +45,14 @@ local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
                 stopEvent:Fire()
                 break
             end
-            pcall(function()
+            local success, errorMsg = pcall(function()
                 game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
             end)
+            if not success then
+                warn("Failed to fire remote with args: " .. tostring(args[1]) .. ", Error: " .. errorMsg)
+            else
+                print("Fired remote with args: " .. tostring(args[1]))
+            end
             randomDelay(minDelay, maxDelay)
             if not connection.Connected then break end
         end
@@ -64,10 +74,10 @@ local function autoSellBubble()
 end
 
 -- Auto Hatch Egg
-local selectedEgg = "Iceshard Egg" -- Default egg
 local function autoHatchEgg()
     _G["HatchEggEnabled"] = autoHatchEggEnabled
-    local args = { [1] = "HatchEgg", [2] = selectedEgg, [3] = 1 }
+    local args = { [1] = "HatchEgg", [2] = "Crystal Egg", [3] = 1 }
+    print("Attempting to hatch Crystal Egg")
     safeFireServer(args, 5, 7, autoHatchEggStopEvent, "HatchEggEnabled")
 end
 
@@ -135,8 +145,8 @@ MainTab:CreateToggle({
 
 -- Auto Hatch Egg Toggle
 MainTab:CreateToggle({
-    Name = "Auto Hatch Egg",
-    Info = "Automatically hatches selected egg.",
+    Name = "Auto Hatch Crystal Egg",
+    Info = "Automatically hatches Crystal Egg.",
     CurrentValue = false,
     Flag = "AutoHatchEgg",
     Callback = function(Value)
@@ -145,22 +155,6 @@ MainTab:CreateToggle({
             autoHatchEgg()
         else
             autoHatchEggStopEvent:Fire()
-        end
-    end,
-})
-
--- Egg Selection Dropdown
-MainTab:CreateDropdown({
-    Name = "Select Egg",
-    Info = "Choose which egg to hatch automatically.",
-    Options = {"Iceshard Egg", "Spotted Egg", "Common Egg", "Spikey Egg"},
-    CurrentOption = "Iceshard Egg",
-    Flag = "SelectedEgg",
-    Callback = function(Option)
-        selectedEgg = Option
-        if autoHatchEggEnabled then
-            autoHatchEggStopEvent:Fire()
-            autoHatchEgg()
         end
     end,
 })
