@@ -16,10 +16,12 @@ end
 -- Toggle variables
 local autoSellBubbleEnabled = false
 local autoHatchEggEnabled = false
+local autoTapEnabled = false
 
 -- Stop events
 local autoSellBubbleStopEvent = Instance.new("BindableEvent")
 local autoHatchEggStopEvent = Instance.new("BindableEvent")
+local autoTapStopEvent = Instance.new("BindableEvent")
 
 -- Randomized delay function
 local function randomDelay(min, max)
@@ -45,6 +47,13 @@ local function safeFireServer(args, minDelay, maxDelay, stopEvent, toggleFlag)
             if not connection.Connected then break end
         end
     end)
+end
+
+-- Auto Tap (BlowBubble)
+local function autoTap()
+    _G["BlowBubbleEnabled"] = autoTapEnabled
+    local args = { [1] = "BlowBubble" }
+    safeFireServer(args, 0.5, 1, autoTapStopEvent, "BlowBubbleEnabled")
 end
 
 -- Auto Sell Bubble
@@ -91,6 +100,22 @@ end
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
+
+-- Auto Tap Toggle
+MainTab:CreateToggle({
+    Name = "Auto Tap",
+    Info = "Automatically blows bubbles.",
+    CurrentValue = false,
+    Flag = "AutoTap",
+    Callback = function(Value)
+        autoTapEnabled = Value
+        if Value then
+            autoTap()
+        else
+            autoTapStopEvent:Fire()
+        end
+    end,
+})
 
 -- Auto Sell Bubble Toggle
 MainTab:CreateToggle({
