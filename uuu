@@ -1,17 +1,28 @@
--- Load Rayfield UI library
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
+-- Load Rayfield UI library with error handling
+local success, Rayfield = pcall(loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua')))
+if not success then
+    warn("Failed to load Rayfield: " .. tostring(Rayfield))
+    return
+end
+local Rayfield = Rayfield()
 
--- Create main window
-local Window = Rayfield:CreateWindow({
-   Name = "Arrayfield Example Window",
-   LoadingTitle = "Arrayfield Interface Suite",
-   LoadingSubtitle = "by Arrays",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = nil,
-      FileName = "Arrayfield"
-   }
-})
+-- Create main window with error handling
+local success, Window = pcall(function()
+    return Rayfield:CreateWindow({
+        Name = "Arrayfield Example Window",
+        LoadingTitle = "Arrayfield Interface Suite",
+        LoadingSubtitle = "by Arrays",
+        ConfigurationSaving = {
+            Enabled = true,
+            FolderName = nil,
+            FileName = "Arrayfield"
+        }
+    })
+end)
+if not success then
+    warn("Failed to create window: " .. tostring(Window))
+    return
+end
 
 -- Create tabs
 local Tab = Window:CreateTab("Tab Example", 4483362458)
@@ -24,202 +35,202 @@ local COOLDOWN = 8 -- 8 seconds cooldown
 
 -- Anti-AFK function
 local function enableAntiAFK()
-   local vu = game:GetService("VirtualUser")
-   game:GetService("Players").LocalPlayer.Idled:Connect(function()
-      vu:CaptureController()
-      vu:ClickButton2(Vector2.new())
-      print("Anti-AFK: Simulatedmenuser activity")
-   end)
+    local vu = game:GetService("VirtualUser")
+    game:GetService("Players").LocalPlayer.Idled:Connect(function()
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.new())
+        print("Anti-AFK: Simulated user activity")
+    end)
 end
 
 -- Auto Open button with cooldown and error handling
 local Button = Tab:CreateButton({
-   Name = "Auto Open",
-   Info = "Automatically opens a free case with an 8-second cooldown.",
-   Interact = 'Open',
-   Callback = function()
-      local currentTime = tick()
-      if movimenti - lastOpenCaseTime >= COOLDOWN then
-         local success, err = pcall(function()
+    Name = "Auto Open",
+    Info = "Automatically opens a free case with an 8-second cooldown.",
+    Interact = 'Open',
+    Callback = function()
+        local currentTime = tick()
+        if currentTime - lastOpenCaseTime >= COOLDOWN then
+            local success, err = pcall(function()
+                local args = {
+                    [1] = "OpenCase",
+                    [2] = "Free Case",
+                    [3] = 1
+                }
+                local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+                local MainEvent = Remotes:WaitForChild("MainEvent", 9e9)
+                MainEvent:FireServer(unpack(args))
+                print("OpenCase event fired successfully")
+            end)
+            if success then
+                lastOpenCaseTime = currentTime
+                Rayfield:Notify({
+                    Title = "Success",
+                    Content = "Case opened successfully!",
+                    Duration = 3
+                })
+            else
+                Rayfield:Notify({
+                    Title = "Error",
+                    Content = "Failed to open case: " .. tostring(err),
+                    Duration = 5
+                })
+            end
+        else
+            Rayfield:Notify({
+                Title = "Cooldown",
+                Content = "Please wait " .. string.format("%.1f", COOLDOWN - (currentTime - lastOpenCaseTime)) .. " seconds before opening another case.",
+                Duration = 3
+            })
+        end
+    end,
+})
+
+-- Anti-AFK button
+local AntiAFKButton = Tab:CreateButton({
+    Name = "Enable Anti-AFK",
+    Info = "Prevents AFK timeout by simulating user activity.",
+    Interact = 'Enable',
+    Callback = function()
+        local success, err = pcall(enableAntiAFK)
+        if success then
+            Rayfield:Notify({
+                Title = "Success",
+                Content = "Anti-AFK enabled successfully!",
+                Duration = 3
+            })
+        else
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Failed to enable Anti-AFK: " .. tostring(err),
+                Duration = 5
+            })
+        end
+    end,
+})
+
+-- Auto Sell button with error handling
+local SellButton = Tab:CreateButton({
+    Name = "Auto Sell",
+    Info = "Automatically sells an item via the SellItem event.",
+    Interact = 'Sell',
+    Callback = function()
+        local success, err = pcall(function()
             local args = {
-               [1] = "OpenCase",
-               [2] = "Free Case",
-               [3] = 1
+                [1] = "SellItem"
             }
             local ReplicatedStorage = game:GetService("ReplicatedStorage")
             local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
             local MainEvent = Remotes:WaitForChild("MainEvent", 9e9)
             MainEvent:FireServer(unpack(args))
-            print("OpenCase event fired successfully")
-         end)
-         if success then
-            lastOpenCaseTime = currentTime
+            print("SellItem event fired successfully")
+        end)
+        if success then
             Rayfield:Notify({
-               Title = "Success",
-               Content = "Case opened successfully!",
-               Duration = 3
+                Title = "Success",
+                Content = "Item sold successfully!",
+                Duration = 3
             })
-         else
+        else
             Rayfield:Notify({
-               Title = "Error",
-               Content = "Failed to open case: " .. tostring(err),
-               Duration = 5
+                Title = "Error",
+                Content = "Failed to sell item: " .. tostring(err),
+                Duration = 5
             })
-         end
-      else
-         Rayfield:Notify({
-            Title = "Cooldown",
-            Content = "Please wait " .. string.format("%.1f", COOLDOWN - (currentTime - lastOpenCaseTime)) .. " seconds before opening another case.",
-            Duration = 3
-         })
-      end
-   end,
+        end
+    end,
 })
 
--- Anti-AFK button
-local AntiAFKButton = Tab:CreateButton({
-   Name = "Enable Anti-AFK",
-   Info = "Prevents AFK timeout by simulating user activity.",
-   Interact = 'Enable',
-   Callback = function()
-      local success, err = pcall(enableAntiAFK)
-      if success then
-         Rayfield:Notify({
-            Title = "Success",
-            Content = "Anti-AFK enabled successfully!",
-            Duration = 3
-         })
-      else
-         Rayfield:Notify({
-            Title = "Error",
-            Content = "Failed to enable Anti-AFK: " .. tostring(err),
-            Duration = 5
-         })
-      end
-   end,
-})
-
--- Auto Sell button with error handling
-local SellButton = Tab:CreateButton({
-   Name = "Auto Sell",
-   Info = "Automatically sells an item via the SellItem event.",
-   Interact = 'Sell',
-   Callback = function()
-      local success, err = pcall(function()
-         local args = {
-            [1] = "SellItem"
-         }
-         local ReplicatedStorage = game:GetService("ReplicatedStorage")
-         local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
-         local MainEvent = Remotes:WaitForChild("MainEvent", 9e9)
-         MainEvent:FireServer(unpack(args))
-         print("SellItem event fired successfully")
-      end)
-      if success then
-         Rayfield:Notify({
-            Title = "Success",
-            Content = "Item sold successfully!",
-            Duration = 3
-         })
-      else
-         Rayfield:Notify({
-            Title = "Error",
-            Content = "Failed to sell item: " .. tostring(err),
-            Duration = 5
-         })
-      end
-   end,
-})
-
--- Existing UI elements
+-- Existing UI elements (remaining code unchanged)
 local Toggle = Tab:CreateToggle({
-   Name = "Toggle Example",
-   Info = "Toggle info/Description.",
-   CurrentValue = false,
-   Flag = "Toggle1",
-   Callback = function(Value)
-      print(Value)
-   end,
+    Name = "Toggle Example",
+    Info = "Toggle info/Description.",
+    CurrentValue = false,
+    Flag = "Toggle1",
+    Callback = function(Value)
+        print(Value)
+    end,
 })
 
 local ColorPicker = Tab:CreateColorPicker({
-   Name = "Color Picker",
-   Info = "info or description",
-   Color = Color3.fromRGB(2,255,255),
-   Flag = "ColorPicker1",
-   Callback = function(Value)
-      print(Value)
-   end
+    Name = "Color Picker",
+    Info = "info or description",
+    Color = Color3.fromRGB(2,255,255),
+    Flag = "ColorPicker1",
+    Callback = function(Value)
+        print(Value)
+    end
 })
 
 local Slider = Tab:CreateSlider({
-   Name = "Slider Example",
-   Info = "Button info/Description.",
-   Range = {0, 100},
-   Increment = 10,
-   Suffix = "Bananas",
-   CurrentValue = 10,
-   Flag = "Slider1",
-   Callback = function(Value)
-      print(Value)
-   end,
+    Name = "Slider Example",
+    Info = "Button info/Description.",
+    Range = {0, 100},
+    Increment = 10,
+    Suffix = "Bananas",
+    CurrentValue = 10,
+    Flag = "Slider1",
+    Callback = function(Value)
+        print(Value)
+    end,
 })
 
 local Section2 = Tab:CreateSection("Inputs Examples", true)
 Tab:CreateInput({
-   Name = "Numbers Only",
-   Info = "Input info/Description.",
-   PlaceholderText = "Amount",
-   NumbersOnly = true,
-   OnEnter = true,
-   RemoveTextAfterFocusLost = true,
-   Callback = function(Text)
-      print(Text)
-   end,
+    Name = "Numbers Only",
+    Info = "Input info/Description.",
+    PlaceholderText = "Amount",
+    NumbersOnly = true,
+    OnEnter = true,
+    RemoveTextAfterFocusLost = true,
+    Callback = function(Text)
+        print(Text)
+    end,
 })
 
 Tab:CreateInput({
-   Name = "11 Characters Limit",
-   Info = "Input info/Description.",
-   PlaceholderText = "Text",
-   CharacterLimit = 15,
-   RemoveTextAfterFocusLost = true,
-   Callback = function(Text)
-      print(Text)
-   end,
+    Name = "11 Characters Limit",
+    Info = "Input info/Description.",
+    PlaceholderText = "Text",
+    CharacterLimit = 15,
+    RemoveTextAfterFocusLost = true,
+    Callback = function(Text)
+        print(Text)
+    end,
 })
 
 Tab:CreateInput({
-   Name = "No RemoveTextAfterFocusLost",
-   Info = "Input info/Description.",
-   PlaceholderText = "Input",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Text)
-      print(Text)
-   end,
+    Name = "No RemoveTextAfterFocusLost",
+    Info = "Input info/Description.",
+    PlaceholderText = "Input",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        print(Text)
+    end,
 })
 
 local Section3 = Tab:CreateSection("Dropdown Examples", true)
 local MultiSelectionDropdown = Tab:CreateDropdown({
-   Name = "Multi Selection",
-   Options = {"Option 1", "Option 2", "Option 3"},
-   CurrentOption = {"Option 1", "Option 3"},
-   MultiSelection = true,
-   Flag = "Dropdown1",
-   Callback = function(Option)
-      print(Option)
-   end,
+    Name = "Multi Selection",
+    Options = {"Option 1", "Option 2", "Option 3"},
+    CurrentOption = {"Option 1", "Option 3"},
+    MultiSelection = true,
+    Flag = "Dropdown1",
+    Callback = function(Option)
+        print(Option)
+    end,
 })
 
 local SingleSelection = Tab:CreateDropdown({
-   Name = "Single Selection",
-   Options = {"Option 1", "Option 2"},
-   CurrentOption = "Option 1",
-   MultiSelection = false,
-   Flag = "Dropdown2",
-   Callback = function(Option)
-      print(Option)
-   end,
+    Name = "Single Selection",
+    Options = {"Option 1", "Option 2"},
+    CurrentOption = "Option 1",
+    MultiSelection = false,
+    Flag = "Dropdown2",
+    Callback = function(Option)
+        print(Option)
+    end,
 })
 
 local Label = Tab:CreateLabel("Thanks for using Arrayfield, there were a lot of issues but here we are!", Section)
@@ -228,85 +239,85 @@ local Paragraph = Tab:CreateParagraph({Title = "Paragraph Example", Content = "P
 local Sets = Tab:CreateSection('Set Functions', false)
 local SButton
 SButton = Tab:CreateButton({
-   Name = "Button Example",
-   Interact = 'Interact',
-   SectionParent = Sets,
-   Callback = function()
-      SButton maat :Set(nil, 'New Interaction')
-   end
+    Name = "Button Example",
+    Interact = 'Interact',
+    SectionParent = Sets,
+    Callback = function()
+        SButton:Set(nil, 'New Interaction')
+    end
 })
 
 Tab:CreateButton({
-   Name = "Dropdown Set",
-   Interact = 'Interact',
-   SectionParent = Sets,
-   Callback = function()
-      SingleSelection:Set('Option 1')
-   end
+    Name = "Dropdown Set",
+    Interact = 'Interact',
+    SectionParent = Sets,
+    Callback = function()
+        SingleSelection:Set('Option 1')
+    end
 })
 
 local LockTesting = Tab:CreateSection('Lockdown Section', false)
 local ToLock = {}
 Tab:CreateToggle({
-   Name = "Lockdown",
-   SectionParent = LockTesting,
-   Info = "Toggle info/Description.",
-   CurrentValue = false,
-   Callback = function(Value)
-      if Value then
-         for _, v in ToLock do
-            v:Lock('Locked')
-         end
-      else
-         for _, v in ToLock do
-            v:Unlock('Locked')
-         end
-      end
-   end,
+    Name = "Lockdown",
+    SectionParent = LockTesting,
+    Info = "Toggle info/Description.",
+    CurrentValue = false,
+    Callback = function(Value)
+        if Value then
+            for _, v in ToLock do
+                v:Lock('Locked')
+            end
+        else
+            for _, v in ToLock do
+                v:Unlock('Locked')
+            end
+        end
+    end,
 })
 
 ToLock.Button = Tab:CreateButton({
-   SectionParent = LockTesting,
-   Name = "Button Example",
-   Info = "Button info/Description.",
-   Interact = 'Interact',
-   Callback = function()
-      print('Pressed')
-   end,
+    SectionParent = LockTesting,
+    Name = "Button Example",
+    Info = "Button info/Description.",
+    Interact = 'Interact',
+    Callback = function()
+        print('Pressed')
+    end,
 })
 
 ToLock.Toggle = Tab:CreateToggle({
-   SectionParent = LockTesting,
-   Name = "Toggle Example",
-   Info = "Toggle info/Description.",
-   CurrentValue = false,
-   Flag = "Toggle1",
-   Callback = function(Value)
-      print(Value)
-   end,
+    SectionParent = LockTesting,
+    Name = "Toggle Example",
+    Info = "Toggle info/Description.",
+    CurrentValue = false,
+    Flag = "Toggle1",
+    Callback = function(Value)
+        print(Value)
+    end,
 })
 
 ToLock.ColorPicker = Tab:CreateColorPicker({
-   Name = "Color Picker",
-   Info = 'info or description',
-   SectionParent = LockTesting,
-   Color = Color3.fromRGB(2,255,255),
-   Flag = "ColorPicker1",
-   Callback = function(Value)
-      print(Value)
-   end
+    Name = "Color Picker",
+    Info = 'info or description',
+    SectionParent = LockTesting,
+    Color = Color3.fromRGB(2,255,255),
+    Flag = "ColorPicker1",
+    Callback = function(Value)
+        print(Value)
+    end
 })
 
 ToLock.Slider = Tab:CreateSlider({
-   SectionParent = LockTesting,
-   Name = "Slider Example",
-   Info = "Button info/Description.",
-   Range = {0, 100},
-   Increment = 10,
-   Suffix = "Bananas",
-   CurrentValue = 10,
-   Flag = "Slider1",
-   Callback = function(Value)
-      print(Value)
-   end,
+    SectionParent = LockTesting,
+    Name = "Slider Example",
+    Info = "Button info/Description.",
+    Range = {0, 100},
+    Increment = 10,
+    Suffix = "Bananas",
+    CurrentValue = 10,
+    Flag = "Slider1",
+    Callback = function(Value)
+        print(Value)
+    end,
 })
