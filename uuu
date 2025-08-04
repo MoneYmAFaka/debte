@@ -1,198 +1,91 @@
--- Load Arrayfield UI library with error handling
-local Arrayfield
-local success, result = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
-end)
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 
-if not success then
-    warn("Failed to load Arrayfield UI library: " .. tostring(result))
-    return -- Stop the script if the UI library fails to load
-end
-Arrayfield = success and result or nil
-
--- Initialize services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
--- Safety check
-if not LocalPlayer then
-    warn("Player not found. Script aborted.")
-    return
-end
-
--- Toggle variables
-local autoSellBubbleEnabled = false
-local autoHatchEggEnabled = false
-local autoTapEnabled = false
-
--- Stop events
-local autoSellBubbleStopEvent = Instance.new("BindableEvent")
-local autoHatchEggStopEvent = Instance.new("BindableEvent")
-local autoTapStopEvent = Instance.new("BindableEvent")
-
--- Randomized delay function (used for Tap and Sell)
-local function randomDelay(min, max)
-    return task.wait(min + math.random() * (max - min))
-end
-
--- Fixed delay for Auto Hatch
-local function fixedDelay(seconds)
-    return task.wait(seconds)
-end
-
--- Safe FireServer function with no logs
-local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, toggleFlag)
-    local connection
-    connection = stopEvent.Event:Connect(function()
-        connection:Disconnect()
-    end)
-    task.spawn(function()
-        while true do
-            if not _G[toggleFlag] then
-                stopEvent:Fire()
-                break
-            end
-            pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
-            end)
-            if delayType == "fixed" then
-                fixedDelay(minDelay)
-            else
-                randomDelay(minDelay, maxDelay)
-            end
-            if not connection.Connected then break end
-        end
-    end)
-end
-
--- Auto Tap (BlowBubble)
-local function autoTap()
-    _G["BlowBubbleEnabled"] = autoTapEnabled
-    local args = { [1] = "BlowBubble" }
-    safeFireServer(args, "random", 0.2, 0.4, autoTapStopEvent, "BlowBubbleEnabled")
-end
-
--- Auto Sell Bubble
-local function autoSellBubble()
-    _G["SellBubbleEnabled"] = autoSellBubbleEnabled
-    local args = { [1] = "SellBubble" }
-    safeFireServer(args, "random", 5, 7, autoSellBubbleStopEvent, "SellBubbleEnabled")
-end
-
--- Auto Hatch Egg
-local function autoHatchEgg()
-    _G["HatchEggEnabled"] = autoHatchEggEnabled
-    local args = { [1] = "HatchEgg", [2] = "Infinity Egg", [3] = 2 }
-    safeFireServer(args, "fixed", 3, nil, autoHatchEggStopEvent, "HatchEggEnabled")
-end
-
--- Create UI
-local Window = Arrayfield:CreateWindow({
-    Name = "Auto Features Hub",
-    LoadingTitle = "Loading Interface",
-    LoadingSubtitle = "by xAI",
+local Window = Rayfield:CreateWindow({
+    Name = "Case Opener GUI",
+    LoadingTitle = "Arrayfield Interface Suite",
+    LoadingSubtitle = "by Arrays",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "AutoHub",
-        FileName = "Config"
-    }
+        FolderName = nil,
+        FileName = "CaseOpenerConfig"
+    },
+    KeySystem = false, -- DISABLED
 })
 
--- Fix UISizeConstraint issue
-local function fixUISizeConstraints(window)
-    for _, element in pairs(window:GetDescendants()) do
-        if element:IsA("UISizeConstraint") then
-            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
-                element.MaxSize = Vector2.new(
-                    math.max(element.MaxSize.X, element.MinSize.X),
-                    math.max(element.MaxSize.Y, element.MinSize.Y)
-                )
+local Tab = Window:CreateTab("Main", 4483362458)
+
+local Section = Tab:CreateSection("Case Functions", false)
+
+-- Auto Open Case
+local autoOpen = false
+Tab:CreateToggle({
+    Name = "Auto Open Case",
+    Info = "Automatically opens a case every 8 seconds.",
+    CurrentValue = false,
+    Callback = function(Value)
+        autoOpen = Value
+        task.spawn(function()
+            while autoOpen do
+                local success, err = pcall(function()
+                    local args = {
+                        [1] = "OpenCase",
+                        [2] = "Free Case",
+                        [3] = 1,
+                    }
+                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9)
+                        :WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
+                end)
+                if not success then
+                    warn("[Auto Open Error]:", err)
+                end
+                task.wait(8)
             end
-        end
-    end
-end
+        end)
+    end,
+})
 
--- Main Tab
-local MainTab = Window:CreateTab("Main", 4483362458)
-local MainSection = MainTab:CreateSection("Auto Features", false)
-
--- Auto Tap Toggle
-MainTab:CreateToggle({
-    Name = "Auto Tap",
-    Info = "Automatically blows bubbles.",
+-- Auto Sell Item
+local autoSell = false
+Tab:CreateToggle({
+    Name = "Auto Sell Items",
+    Info = "Automatically triggers the sell event every 8 seconds.",
     CurrentValue = false,
-    Flag = "AutoTap",
     Callback = function(Value)
-        autoTapEnabled = Value
-        if Value then
-            autoTap()
-        else
-            autoTapStopEvent:Fire()
-        end
+        autoSell = Value
+        task.spawn(function()
+            while autoSell do
+                local success, err = pcall(function()
+                    local args = {
+                        [1] = "SellItem"
+                        -- Item details removed as per request
+                    }
+                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9)
+                        :WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
+                end)
+                if not success then
+                    warn("[Auto Sell Error]:", err)
+                end
+                task.wait(8)
+            end
+        end)
     end,
 })
 
--- Auto Sell Bubble Toggle
-MainTab:CreateToggle({
-    Name = "Auto Sell Bubble",
-    Info = "Automatically sells bubbles.",
+-- Anti-AFK
+local antiAfk = false
+Tab:CreateToggle({
+    Name = "Anti-AFK",
+    Info = "Prevents you from getting kicked for inactivity.",
     CurrentValue = false,
-    Flag = "AutoSellBubble",
     Callback = function(Value)
-        autoSellBubbleEnabled = Value
-        if Value then
-            autoSellBubble()
-        else
-            autoSellBubbleStopEvent:Fire()
+        antiAfk = Value
+        if antiAfk then
+            local vu = game:GetService("VirtualUser")
+            game:GetService("Players").LocalPlayer.Idled:Connect(function()
+                vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                task.wait(1)
+                vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
         end
     end,
 })
-
--- Auto Hatch Egg Toggle
-MainTab:CreateToggle({
-    Name = "Auto Hatch Infinity Egg",
-    Info = "Automatically hatches Infinity Egg.",
-    CurrentValue = false,
-    Flag = "AutoHatchEgg",
-    Callback = function(Value)
-        autoHatchEggEnabled = Value
-        if Value then
-            autoHatchEgg()
-        else
-            autoHatchEggStopEvent:Fire()
-        end
-    end,
-})
-
--- Settings Tab
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
-
--- Close Keybind (Default E)
-local closeKey = Enum.KeyCode.E
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == closeKey then
-        Window:Destroy()
-    end
-end)
-
-SettingsTab:CreateInput({
-    Name = "Close UI Key",
-    Info = "Enter a key to close the UI (default: E).",
-    PlaceholderText = "Enter Key",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(Text)
-        local key = Enum.KeyCode[Text:upper()]
-        if key then
-            closeKey = key
-        end
-    end,
-})
-
--- Apply the fix after creating all UI elements
-fixUISizeConstraints(Window)
-
--- Notification
-MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
