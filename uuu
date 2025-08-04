@@ -1,323 +1,204 @@
--- Load Rayfield UI library with error handling
-local success, Rayfield = pcall(loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua')))
-if not success then
-    warn("Failed to load Rayfield: " .. tostring(Rayfield))
-    return
-end
-local Rayfield = Rayfield()
-
--- Create main window with error handling
-local success, Window = pcall(function()
-    return Rayfield:CreateWindow({
-        Name = "Arrayfield Example Window",
-        LoadingTitle = "Arrayfield Interface Suite",
-        LoadingSubtitle = "by Arrays",
-        ConfigurationSaving = {
-            Enabled = true,
-            FolderName = nil,
-            FileName = "Arrayfield"
-        }
-    })
+-- Load Arrayfield UI library with error handling
+local Arrayfield
+local success, result = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
 end)
+
 if not success then
-    warn("Failed to create window: " .. tostring(Window))
+    warn("Failed to load Arrayfield UI library: " .. tostring(result))
+    return -- Stop the script if the UI library fails to load
+end
+Arrayfield = success and result or nil
+
+-- Initialize services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Safety check
+if not LocalPlayer then
+    warn("Player not found. Script aborted.")
     return
 end
 
--- Create tabs
-local Tab = Window:CreateTab("Tab Example", 4483362458)
-local Tab2 = Window:CreateTab("Tab Example 2")
-local Section = Tab:CreateSection("Section Example", false)
+-- Toggle variables
+local autoSellEnabled = false
+local autoOpenEnabled = false
+local antiAfkEnabled = false
 
--- Cooldown variable for OpenCase
-local lastOpenCaseTime = 0
-local COOLDOWN = 8 -- 8 seconds cooldown
+-- Stop events
+local autoSellStopEvent = Instance.new("BindableEvent")
+local autoOpenStopEvent = Instance.new("BindableEvent")
+local antiAfkStopEvent = Instance.new("BindableEvent")
 
--- Anti-AFK function
-local function enableAntiAFK()
-    local vu = game:GetService("VirtualUser")
-    game:GetService("Players").LocalPlayer.Idled:Connect(function()
-        vu:CaptureController()
-        vu:ClickButton2(Vector2.new())
-        print("Anti-AFK: Simulated user activity")
+-- Randomized delay function
+local function randomDelay(min, max)
+    return task.wait(min + math.random() * (max - min))
+end
+
+-- Safe FireServer function with no logs
+local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, toggleFlag)
+    local connection
+    connection = stopEvent.Event:Connect(function()
+        connection:Disconnect()
+    end)
+    task.spawn(function()
+        while true do
+            if not _G[toggleFlag] then
+                stopEvent:Fire()
+                break
+            end
+            pcall(function()
+                game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
+            end)
+            if delayType == "fixed" then
+                task.wait(minDelay)
+            else
+                randomDelay(minDelay, maxDelay)
+            end
+            if not connection.Connected then break end
+        end
     end)
 end
 
--- Auto Open button with cooldown and error handling
-local Button = Tab:CreateButton({
-    Name = "Auto Open",
-    Info = "Automatically opens a free case with an 8-second cooldown.",
-    Interact = 'Open',
-    Callback = function()
-        local currentTime = tick()
-        if currentTime - lastOpenCaseTime >= COOLDOWN then
-            local success, err = pcall(function()
-                local args = {
-                    [1] = "OpenCase",
-                    [2] = "Free Case",
-                    [3] = 1
-                }
-                local ReplicatedStorage = game:GetService("ReplicatedStorage")
-                local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
-                local MainEvent = Remotes:WaitForChild("MainEvent", 9e9)
-                MainEvent:FireServer(unpack(args))
-                print("OpenCase event fired successfully")
-            end)
-            if success then
-                lastOpenCaseTime = currentTime
-                Rayfield:Notify({
-                    Title = "Success",
-                    Content = "Case opened successfully!",
-                    Duration = 3
-                })
-            else
-                Rayfield:Notify({
-                    Title = "Error",
-                    Content = "Failed to open case: " .. tostring(err),
-                    Duration = 5
-                })
+-- Anti-AFK function
+local function antiAfk()
+    _G["AntiAfkEnabled"] = antiAfkEnabled
+    local vu = game:GetService("VirtualUser")
+    task.spawn(function()
+        while true do
+            if not _G["AntiAfkEnabled"] then
+                antiAfkStopEvent:Fire()
+                break
             end
-        else
-            Rayfield:Notify({
-                Title = "Cooldown",
-                Content = "Please wait " .. string.format("%.1f", COOLDOWN - (currentTime - lastOpenCaseTime)) .. " seconds before opening another case.",
-                Duration = 3
-            })
+            vu:CaptureController()
+            vu:ClickButton2(Vector2.new())
+            task.wait(30) -- Simulate activity every 30 seconds
+            if not antiAfkStopEvent.Event.Connected then break end
         end
-    end,
+    end)
+end
+
+-- Auto Sell
+local function autoSell()
+    _G["SellEnabled"] = autoSellEnabled
+    local args = { [1] = "Sell" }
+    safeFireServer(args, "random", 5, 10, autoSellStopEvent, "SellEnabled")
+end
+
+-- Auto Open
+local function autoOpen()
+    _G["OpenEnabled"] = autoOpenEnabled
+    local args = { [1] = "Open", [2] = "Infinity Chest" }
+    safeFireServer(args, "random", 3, 6, autoOpenStopEvent, "OpenEnabled")
+end
+
+-- Create UI
+local Window = Arrayfield:CreateWindow({
+    Name = "Auto Features Hub",
+    LoadingTitle = "Loading Interface",
+    LoadingSubtitle = "by xAI",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "AutoHub",
+        FileName = "Config"
+    }
 })
 
--- Anti-AFK button
-local AntiAFKButton = Tab:CreateButton({
-    Name = "Enable Anti-AFK",
-    Info = "Prevents AFK timeout by simulating user activity.",
-    Interact = 'Enable',
-    Callback = function()
-        local success, err = pcall(enableAntiAFK)
-        if success then
-            Rayfield:Notify({
-                Title = "Success",
-                Content = "Anti-AFK enabled successfully!",
-                Duration = 3
-            })
-        else
-            Rayfield:Notify({
-                Title = "Error",
-                Content = "Failed to enable Anti-AFK: " .. tostring(err),
-                Duration = 5
-            })
+-- Fix UISizeConstraint issue
+local function fixUISizeConstraints(window)
+    for _, element in pairs(window:GetDescendants()) do
+        if element:IsA("UISizeConstraint") then
+            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
+                element.MaxSize = Vector2.new(
+                    math.max(element.MaxSize.X, element.MinSize.X),
+                    math.max(element.MaxSize.Y, element.MinSize.Y)
+                )
+            end
         end
-    end,
-})
-
--- Auto Sell button with error handling
-local SellButton = Tab:CreateButton({
-    Name = "Auto Sell",
-    Info = "Automatically sells an item via the SellItem event.",
-    Interact = 'Sell',
-    Callback = function()
-        local success, err = pcall(function()
-            local args = {
-                [1] = "SellItem"
-            }
-            local ReplicatedStorage = game:GetService("ReplicatedStorage")
-            local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
-            local MainEvent = Remotes:WaitForChild("MainEvent", 9e9)
-            MainEvent:FireServer(unpack(args))
-            print("SellItem event fired successfully")
-        end)
-        if success then
-            Rayfield:Notify({
-                Title = "Success",
-                Content = "Item sold successfully!",
-                Duration = 3
-            })
-        else
-            Rayfield:Notify({
-                Title = "Error",
-                Content = "Failed to sell item: " .. tostring(err),
-                Duration = 5
-            })
-        end
-    end,
-})
-
--- Existing UI elements (remaining code unchanged)
-local Toggle = Tab:CreateToggle({
-    Name = "Toggle Example",
-    Info = "Toggle info/Description.",
-    CurrentValue = false,
-    Flag = "Toggle1",
-    Callback = function(Value)
-        print(Value)
-    end,
-})
-
-local ColorPicker = Tab:CreateColorPicker({
-    Name = "Color Picker",
-    Info = "info or description",
-    Color = Color3.fromRGB(2,255,255),
-    Flag = "ColorPicker1",
-    Callback = function(Value)
-        print(Value)
     end
-})
+end
 
-local Slider = Tab:CreateSlider({
-    Name = "Slider Example",
-    Info = "Button info/Description.",
-    Range = {0, 100},
-    Increment = 10,
-    Suffix = "Bananas",
-    CurrentValue = 10,
-    Flag = "Slider1",
+-- Main Tab
+local MainTab = Window:CreateTab("Main", 4483362458)
+local MainSection = MainTab:CreateSection("Auto Features", false)
+
+-- Auto Sell Toggle
+MainTab:CreateToggle({
+    Name = "Auto Sell",
+    Info = "Automatically sells items.",
+    CurrentValue = false,
+    Flag = "AutoSell",
     Callback = function(Value)
-        print(Value)
+        autoSellEnabled = Value
+        if Value then
+            autoSell()
+        else
+            autoSellStopEvent:Fire()
+        end
     end,
 })
 
-local Section2 = Tab:CreateSection("Inputs Examples", true)
-Tab:CreateInput({
-    Name = "Numbers Only",
-    Info = "Input info/Description.",
-    PlaceholderText = "Amount",
-    NumbersOnly = true,
-    OnEnter = true,
-    RemoveTextAfterFocusLost = true,
-    Callback = function(Text)
-        print(Text)
+-- Auto Open Toggle
+MainTab:CreateToggle({
+    Name = "Auto Open Infinity Chest",
+    Info = "Automatically opens Infinity Chests.",
+    CurrentValue = false,
+    Flag = "AutoOpen",
+    Callback = function(Value)
+        autoOpenEnabled = Value
+        if Value then
+            autoOpen()
+        else
+            autoOpenStopEvent:Fire()
+        end
     end,
 })
 
-Tab:CreateInput({
-    Name = "11 Characters Limit",
-    Info = "Input info/Description.",
-    PlaceholderText = "Text",
-    CharacterLimit = 15,
-    RemoveTextAfterFocusLost = true,
-    Callback = function(Text)
-        print(Text)
+-- Anti-AFK Toggle
+MainTab:CreateToggle({
+    Name = "Anti-AFK",
+    Info = "Prevents AFK kick by simulating activity.",
+    CurrentValue = false,
+    Flag = "AntiAfk",
+    Callback = function(Value)
+        antiAfkEnabled = Value
+        if Value then
+            antiAfk()
+        else
+            antiAfkStopEvent:Fire()
+        end
     end,
 })
 
-Tab:CreateInput({
-    Name = "No RemoveTextAfterFocusLost",
-    Info = "Input info/Description.",
-    PlaceholderText = "Input",
+-- Settings Tab
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
+local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
+
+-- Close Keybind (Default E)
+local closeKey = Enum.KeyCode.E
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == closeKey then
+        Window:Destroy()
+    end
+end)
+
+SettingsTab:CreateInput({
+    Name = "Close UI Key",
+    Info = "Enter a key to close the UI (default: E).",
+    PlaceholderText = "Enter Key",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
-        print(Text)
-    end,
-})
-
-local Section3 = Tab:CreateSection("Dropdown Examples", true)
-local MultiSelectionDropdown = Tab:CreateDropdown({
-    Name = "Multi Selection",
-    Options = {"Option 1", "Option 2", "Option 3"},
-    CurrentOption = {"Option 1", "Option 3"},
-    MultiSelection = true,
-    Flag = "Dropdown1",
-    Callback = function(Option)
-        print(Option)
-    end,
-})
-
-local SingleSelection = Tab:CreateDropdown({
-    Name = "Single Selection",
-    Options = {"Option 1", "Option 2"},
-    CurrentOption = "Option 1",
-    MultiSelection = false,
-    Flag = "Dropdown2",
-    Callback = function(Option)
-        print(Option)
-    end,
-})
-
-local Label = Tab:CreateLabel("Thanks for using Arrayfield, there were a lot of issues but here we are!", Section)
-local Paragraph = Tab:CreateParagraph({Title = "Paragraph Example", Content = "Paragraph Example"}, Section)
-
-local Sets = Tab:CreateSection('Set Functions', false)
-local SButton
-SButton = Tab:CreateButton({
-    Name = "Button Example",
-    Interact = 'Interact',
-    SectionParent = Sets,
-    Callback = function()
-        SButton:Set(nil, 'New Interaction')
-    end
-})
-
-Tab:CreateButton({
-    Name = "Dropdown Set",
-    Interact = 'Interact',
-    SectionParent = Sets,
-    Callback = function()
-        SingleSelection:Set('Option 1')
-    end
-})
-
-local LockTesting = Tab:CreateSection('Lockdown Section', false)
-local ToLock = {}
-Tab:CreateToggle({
-    Name = "Lockdown",
-    SectionParent = LockTesting,
-    Info = "Toggle info/Description.",
-    CurrentValue = false,
-    Callback = function(Value)
-        if Value then
-            for _, v in ToLock do
-                v:Lock('Locked')
-            end
-        else
-            for _, v in ToLock do
-                v:Unlock('Locked')
-            end
+        local key = Enum.KeyCode[Text:upper()]
+        if key then
+            closeKey = key
         end
     end,
 })
 
-ToLock.Button = Tab:CreateButton({
-    SectionParent = LockTesting,
-    Name = "Button Example",
-    Info = "Button info/Description.",
-    Interact = 'Interact',
-    Callback = function()
-        print('Pressed')
-    end,
-})
+-- Apply the fix after creating all UI elements
+fixUISizeConstraints(Window)
 
-ToLock.Toggle = Tab:CreateToggle({
-    SectionParent = LockTesting,
-    Name = "Toggle Example",
-    Info = "Toggle info/Description.",
-    CurrentValue = false,
-    Flag = "Toggle1",
-    Callback = function(Value)
-        print(Value)
-    end,
-})
-
-ToLock.ColorPicker = Tab:CreateColorPicker({
-    Name = "Color Picker",
-    Info = 'info or description',
-    SectionParent = LockTesting,
-    Color = Color3.fromRGB(2,255,255),
-    Flag = "ColorPicker1",
-    Callback = function(Value)
-        print(Value)
-    end
-})
-
-ToLock.Slider = Tab:CreateSlider({
-    SectionParent = LockTesting,
-    Name = "Slider Example",
-    Info = "Button info/Description.",
-    Range = {0, 100},
-    Increment = 10,
-    Suffix = "Bananas",
-    CurrentValue = 10,
-    Flag = "Slider1",
-    Callback = function(Value)
-        print(Value)
-    end,
-})
+-- Notification
+MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
