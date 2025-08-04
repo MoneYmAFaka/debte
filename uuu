@@ -1,26 +1,39 @@
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
-
 local Window = Rayfield:CreateWindow({
-    Name = "Case Opener GUI",
-    LoadingTitle = "Arrayfield Interface Suite",
-    LoadingSubtitle = "by Arrays",
+    Name = "Case Auto Tool",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "Please wait",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = nil,
-        FileName = "CaseOpenerConfig"
+        FileName = "CaseAutoSave"
     },
-    KeySystem = false, -- DISABLED
+    KeySystem = false -- Key system removed
 })
 
 local Tab = Window:CreateTab("Main", 4483362458)
+local MainSection = Tab:CreateSection("Functions")
 
-local Section = Tab:CreateSection("Case Functions", false)
+-- Anti-AFK
+Tab:CreateToggle({
+    Name = "Anti-AFK",
+    CurrentValue = false,
+    Callback = function(Value)
+        if Value then
+            local vu = game:GetService("VirtualUser")
+            game:GetService("Players").LocalPlayer.Idled:Connect(function()
+                vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                task.wait(1)
+                vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+            end)
+        end
+    end,
+})
 
 -- Auto Open Case
 local autoOpen = false
 Tab:CreateToggle({
     Name = "Auto Open Case",
-    Info = "Automatically opens a case every 8 seconds.",
+    Info = "Opens a free case every 8 seconds.",
     CurrentValue = false,
     Callback = function(Value)
         autoOpen = Value
@@ -30,13 +43,13 @@ Tab:CreateToggle({
                     local args = {
                         [1] = "OpenCase",
                         [2] = "Free Case",
-                        [3] = 1,
+                        [3] = 1
                     }
                     game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9)
                         :WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
                 end)
                 if not success then
-                    warn("[Auto Open Error]:", err)
+                    warn("Auto Open Error:", err)
                 end
                 task.wait(8)
             end
@@ -47,8 +60,8 @@ Tab:CreateToggle({
 -- Auto Sell Item
 local autoSell = false
 Tab:CreateToggle({
-    Name = "Auto Sell Items",
-    Info = "Automatically triggers the sell event every 8 seconds.",
+    Name = "Auto Sell",
+    Info = "Calls SellItem event every 8 seconds.",
     CurrentValue = false,
     Callback = function(Value)
         autoSell = Value
@@ -57,35 +70,16 @@ Tab:CreateToggle({
                 local success, err = pcall(function()
                     local args = {
                         [1] = "SellItem"
-                        -- Item details removed as per request
+                        -- Item details removed as requested
                     }
                     game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9)
                         :WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
                 end)
                 if not success then
-                    warn("[Auto Sell Error]:", err)
+                    warn("Auto Sell Error:", err)
                 end
                 task.wait(8)
             end
         end)
-    end,
-})
-
--- Anti-AFK
-local antiAfk = false
-Tab:CreateToggle({
-    Name = "Anti-AFK",
-    Info = "Prevents you from getting kicked for inactivity.",
-    CurrentValue = false,
-    Callback = function(Value)
-        antiAfk = Value
-        if antiAfk then
-            local vu = game:GetService("VirtualUser")
-            game:GetService("Players").LocalPlayer.Idled:Connect(function()
-                vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                task.wait(1)
-                vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-            end)
-        end
     end,
 })
