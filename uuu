@@ -23,14 +23,14 @@ if not LocalPlayer then
 end
 
 -- Toggle variables
-local autoSellEnabled = false
 local autoOpenEnabled = false
 local antiAfkEnabled = false
+local autoSellEnabled = false
 
 -- Stop events
-local autoSellStopEvent = Instance.new("BindableEvent")
 local autoOpenStopEvent = Instance.new("BindableEvent")
 local antiAfkStopEvent = Instance.new("BindableEvent")
+local autoSellStopEvent = Instance.new("BindableEvent")
 
 -- Randomized delay function
 local function randomDelay(min, max)
@@ -38,7 +38,7 @@ local function randomDelay(min, max)
 end
 
 -- Safe FireServer function with no logs
-local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, toggleFlag)
+local function safeFireServer(args, delay, stopEvent, toggleFlag)
     local connection
     connection = stopEvent.Event:Connect(function()
         connection:Disconnect()
@@ -50,13 +50,9 @@ local function safeFireServer(args, delayType, minDelay, maxDelay, stopEvent, to
                 break
             end
             pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Shared", 9e9):WaitForChild("Framework", 9e9):WaitForChild("Network", 9e9):WaitForChild("Remote", 9e9):WaitForChild("Event", 9e9):FireServer(unpack(args))
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9):WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
             end)
-            if delayType == "fixed" then
-                task.wait(minDelay)
-            else
-                randomDelay(minDelay, maxDelay)
-            end
+            task.wait(delay)
             if not connection.Connected then break end
         end
     end)
@@ -80,18 +76,18 @@ local function antiAfk()
     end)
 end
 
--- Auto Sell
-local function autoSell()
-    _G["SellEnabled"] = autoSellEnabled
-    local args = { [1] = "Sell" }
-    safeFireServer(args, "random", 5, 10, autoSellStopEvent, "SellEnabled")
-end
-
 -- Auto Open
 local function autoOpen()
     _G["OpenEnabled"] = autoOpenEnabled
-    local args = { [1] = "Open", [2] = "Infinity Chest" }
-    safeFireServer(args, "random", 3, 6, autoOpenStopEvent, "OpenEnabled")
+    local args = { [1] = "OpenCase", [2] = "Free Case", [3] = 1 }
+    safeFireServer(args, 8, autoOpenStopEvent, "OpenEnabled")
+end
+
+-- Auto Sell
+local function autoSell()
+    _G["SellEnabled"] = autoSellEnabled
+    local args = { [1] = "SellItem" }
+    safeFireServer(args, 5, autoSellStopEvent, "SellEnabled")
 end
 
 -- Create UI
@@ -124,26 +120,10 @@ end
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
 
--- Auto Sell Toggle
-MainTab:CreateToggle({
-    Name = "Auto Sell",
-    Info = "Automatically sells items.",
-    CurrentValue = false,
-    Flag = "AutoSell",
-    Callback = function(Value)
-        autoSellEnabled = Value
-        if Value then
-            autoSell()
-        else
-            autoSellStopEvent:Fire()
-        end
-    end,
-})
-
 -- Auto Open Toggle
 MainTab:CreateToggle({
-    Name = "Auto Open Infinity Chest",
-    Info = "Automatically opens Infinity Chests.",
+    Name = "Auto Open Free Case",
+    Info = "Automatically opens Free Case with 8-second cooldown.",
     CurrentValue = false,
     Flag = "AutoOpen",
     Callback = function(Value)
@@ -168,6 +148,22 @@ MainTab:CreateToggle({
             antiAfk()
         else
             antiAfkStopEvent:Fire()
+        end
+    end,
+})
+
+-- Auto Sell Toggle
+MainTab:CreateToggle({
+    Name = "Auto Sell",
+    Info = "Automatically sells items with 5-second delay.",
+    CurrentValue = false,
+    Flag = "AutoSell",
+    Callback = function(Value)
+        autoSellEnabled = Value
+        if Value then
+            autoSell()
+        else
+            autoSellStopEvent:Fire()
         end
     end,
 })
