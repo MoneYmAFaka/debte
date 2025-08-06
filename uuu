@@ -1,178 +1,92 @@
--- Load Arrayfield UI library with error handling
+-- Load UI Library from updated source
 local Arrayfield
 local success, result = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/MoneYmAFaka/debte/refs/heads/main/uuu"))()
 end)
 
 if not success then
     warn("Failed to load Arrayfield UI library: " .. tostring(result))
-    return -- Stop the script if the UI library fails to load
+    return
 end
-Arrayfield = success and result or nil
 
--- Initialize services
+Arrayfield = result
+
+-- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
 end
 
--- Toggle variables
+-- Toggle & Case Settings
 local autoOpenEnabled = false
-local antiAfkEnabled = false
-local autoSellEnabled = false
+local selectedCase = "FreeCase"
 
--- Stop events
-local autoOpenStopEvent = Instance.new("BindableEvent")
-local antiAfkStopEvent = Instance.new("BindableEvent")
-local autoSellStopEvent = Instance.new("BindableEvent")
-
--- Randomized delay function
-local function randomDelay(min, max)
-    return task.wait(min + math.random() * (max - min))
-end
-
--- Safe FireServer function with no logs
-local function safeFireServer(args, delay, stopEvent, toggleFlag)
-    local connection
-    connection = stopEvent.Event:Connect(function()
-        connection:Disconnect()
-    end)
+-- Function to repeatedly open case
+local function autoOpenLoop()
     task.spawn(function()
-        while true do
-            if not _G[toggleFlag] then
-                stopEvent:Fire()
-                break
-            end
+        while autoOpenEnabled do
+            local args = { [1] = selectedCase }
             pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Remotes", 9e9):WaitForChild("MainEvent", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("OpenCrate", 9e9):InvokeServer(unpack(args))
             end)
-            task.wait(delay)
-            if not connection.Connected then break end
+            task.wait(6)
         end
     end)
-end
-
--- Anti-AFK function
-local function antiAfk()
-    _G["AntiAfkEnabled"] = antiAfkEnabled
-    local vu = game:GetService("VirtualUser")
-    task.spawn(function()
-        while true do
-            if not _G["AntiAfkEnabled"] then
-                antiAfkStopEvent:Fire()
-                break
-            end
-            vu:CaptureController()
-            vu:ClickButton2(Vector2.new())
-            task.wait(30) -- Simulate activity every 30 seconds
-            if not antiAfkStopEvent.Event.Connected then break end
-        end
-    end)
-end
-
--- Auto Open
-local function autoOpen()
-    _G["OpenEnabled"] = autoOpenEnabled
-    local args = { [1] = "OpenCase", [2] = "Free Case", [3] = 1 }
-    safeFireServer(args, 8, autoOpenStopEvent, "OpenEnabled")
-end
-
--- Auto Sell
-local function autoSell()
-    _G["SellEnabled"] = autoSellEnabled
-    local args = { [1] = "SellItem" }
-    safeFireServer(args, 5, autoSellStopEvent, "SellEnabled")
 end
 
 -- Create UI
 local Window = Arrayfield:CreateWindow({
-    Name = "Auto Features Hub",
-    LoadingTitle = "Loading Interface",
+    Name = "Case Opener Hub",
+    LoadingTitle = "Initializing",
     LoadingSubtitle = "by xAI",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "AutoHub",
-        FileName = "Config"
+        FolderName = "CaseOpenerConfig",
+        FileName = "UserSettings"
     }
 })
 
--- Fix UISizeConstraint issue
-local function fixUISizeConstraints(window)
-    for _, element in pairs(window:GetDescendants()) do
-        if element:IsA("UISizeConstraint") then
-            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
-                element.MaxSize = Vector2.new(
-                    math.max(element.MaxSize.X, element.MinSize.X),
-                    math.max(element.MaxSize.Y, element.MinSize.Y)
-                )
-            end
-        end
-    end
-end
-
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
-local MainSection = MainTab:CreateSection("Auto Features", false)
+
+-- Case Dropdown
+MainTab:CreateDropdown({
+    Name = "Select Case",
+    Options = {
+        "FreeCase",
+        "Snakebite",
+        "Horizon",
+        "WeaponCase1",
+        "WeaponCase2",
+        "eSports2013"
+    },
+    CurrentOption = "FreeCase",
+    Flag = "CaseSelector",
+    Callback = function(option)
+        selectedCase = option
+    end,
+})
 
 -- Auto Open Toggle
 MainTab:CreateToggle({
-    Name = "Auto Open Free Case",
-    Info = "Automatically opens Free Case with 8-second cooldown.",
+    Name = "Auto Open Case",
+    Info = "Automatically opens selected case every 6 seconds.",
     CurrentValue = false,
-    Flag = "AutoOpen",
+    Flag = "AutoOpenCase",
     Callback = function(Value)
         autoOpenEnabled = Value
         if Value then
-            autoOpen()
-        else
-            autoOpenStopEvent:Fire()
+            autoOpenLoop()
         end
     end,
 })
 
--- Anti-AFK Toggle
-MainTab:CreateToggle({
-    Name = "Anti-AFK",
-    Info = "Prevents AFK kick by simulating activity.",
-    CurrentValue = false,
-    Flag = "AntiAfk",
-    Callback = function(Value)
-        antiAfkEnabled = Value
-        if Value then
-            antiAfk()
-        else
-            antiAfkStopEvent:Fire()
-        end
-    end,
-})
-
--- Auto Sell Toggle
-MainTab:CreateToggle({
-    Name = "Auto Sell",
-    Info = "Automatically sells items with 5-second delay.",
-    CurrentValue = false,
-    Flag = "AutoSell",
-    Callback = function(Value)
-        autoSellEnabled = Value
-        if Value then
-            autoSell()
-        else
-            autoSellStopEvent:Fire()
-        end
-    end,
-})
-
--- Settings Tab
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
-
--- Close Keybind (Default E)
+-- UI Close Logic
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
@@ -180,11 +94,10 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-SettingsTab:CreateInput({
+MainTab:CreateInput({
     Name = "Close UI Key",
-    Info = "Enter a key to close the UI (default: E).",
+    Info = "Key to close UI (default: E)",
     PlaceholderText = "Enter Key",
-    RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
@@ -193,8 +106,4 @@ SettingsTab:CreateInput({
     end,
 })
 
--- Apply the fix after creating all UI elements
-fixUISizeConstraints(Window)
-
--- Notification
-MainTab:CreateLabel("Auto Features Loaded! All features are ready to use!", MainSection)
+MainTab:CreateLabel("Script Loaded! Select your case and toggle auto open.")
