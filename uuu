@@ -1,4 +1,4 @@
--- Load UI Library from updated source
+-- Load UI Library (from your GitHub)
 local Arrayfield
 local success, result = pcall(function()
     return loadstring(game:HttpGet("https://raw.githubusercontent.com/MoneYmAFaka/debte/refs/heads/main/uuu"))()
@@ -8,25 +8,25 @@ if not success then
     warn("Failed to load Arrayfield UI library: " .. tostring(result))
     return
 end
-
 Arrayfield = result
 
--- Services
+-- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+-- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
 end
 
--- Toggle & Case Settings
+-- Toggle & Case control
 local autoOpenEnabled = false
 local selectedCase = "FreeCase"
 
--- Function to repeatedly open case
+-- Case opening loop
 local function autoOpenLoop()
     task.spawn(function()
         while autoOpenEnabled do
@@ -39,22 +39,37 @@ local function autoOpenLoop()
     end)
 end
 
--- Create UI
+-- Fix UI size issues
+local function fixUISizeConstraints(window)
+    for _, element in pairs(window:GetDescendants()) do
+        if element:IsA("UISizeConstraint") then
+            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
+                element.MaxSize = Vector2.new(
+                    math.max(element.MaxSize.X, element.MinSize.X),
+                    math.max(element.MaxSize.Y, element.MinSize.Y)
+                )
+            end
+        end
+    end
+end
+
+-- Create UI Window
 local Window = Arrayfield:CreateWindow({
-    Name = "Case Opener Hub",
-    LoadingTitle = "Initializing",
+    Name = "Auto Features Hub",
+    LoadingTitle = "Loading Interface",
     LoadingSubtitle = "by xAI",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "CaseOpenerConfig",
-        FileName = "UserSettings"
+        FolderName = "AutoHub",
+        FileName = "Config"
     }
 })
 
 -- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
+local MainSection = MainTab:CreateSection("Auto Case Opener", false)
 
--- Case Dropdown
+-- Dropdown to select case
 MainTab:CreateDropdown({
     Name = "Select Case",
     Options = {
@@ -72,10 +87,10 @@ MainTab:CreateDropdown({
     end,
 })
 
--- Auto Open Toggle
+-- Toggle to start auto open
 MainTab:CreateToggle({
-    Name = "Auto Open Case",
-    Info = "Automatically opens selected case every 6 seconds.",
+    Name = "Auto Open Selected Case",
+    Info = "Loops OpenCrate every 6 seconds for selected case.",
     CurrentValue = false,
     Flag = "AutoOpenCase",
     Callback = function(Value)
@@ -86,7 +101,13 @@ MainTab:CreateToggle({
     end,
 })
 
--- UI Close Logic
+MainTab:CreateLabel("Auto Case Opener Ready!", MainSection)
+
+-- Settings Tab
+local SettingsTab = Window:CreateTab("Settings", 4483362458)
+local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
+
+-- UI close key
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
@@ -94,10 +115,11 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-MainTab:CreateInput({
+SettingsTab:CreateInput({
     Name = "Close UI Key",
-    Info = "Key to close UI (default: E)",
+    Info = "Enter a key to close the UI (default: E).",
     PlaceholderText = "Enter Key",
+    RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
         if key then
@@ -106,4 +128,5 @@ MainTab:CreateInput({
     end,
 })
 
-MainTab:CreateLabel("Script Loaded! Select your case and toggle auto open.")
+-- Apply constraint fix
+fixUISizeConstraints(Window)
