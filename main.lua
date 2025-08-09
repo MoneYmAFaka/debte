@@ -16,7 +16,6 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
@@ -64,12 +63,12 @@ local function safeFireServer(callback, delayType, minDelay, maxDelay, stopEvent
     end)
 end
 
--- Auto Tap
+-- Auto Tap with fixed 0.5 second delay
 local function autoTap()
     _G["AutoTapFlag"] = autoTapEnabled
     safeFireServer(function()
         ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Clicker", 9e9):FireServer()
-    end, "random", 0.05, 0.1, autoTapStopEvent, "AutoTapFlag")
+    end, "fixed", 0.5, nil, autoTapStopEvent, "AutoTapFlag")
 end
 
 -- Auto Upgrade (1-4)
@@ -91,7 +90,7 @@ local function autoRebirth()
     end, "fixed", 1, nil, autoRebirthStopEvent, "AutoRebirthFlag")
 end
 
--- Create UI
+-- Create UI Window
 local Window = Arrayfield:CreateWindow({
     Name = "Auto Features Hub",
     LoadingTitle = "Loading Interface",
@@ -103,7 +102,7 @@ local Window = Arrayfield:CreateWindow({
     }
 })
 
--- Fix UISizeConstraint
+-- Fix UISizeConstraint issues
 local function fixUISizeConstraints(window)
     for _, element in pairs(window:GetDescendants()) do
         if element:IsA("UISizeConstraint") then
@@ -117,14 +116,14 @@ local function fixUISizeConstraints(window)
     end
 end
 
--- Main Tab
+-- Main Tab and Section
 local MainTab = Window:CreateTab("Main", 4483362458)
 local MainSection = MainTab:CreateSection("Auto Features", false)
 
 -- Auto Tap Toggle
 MainTab:CreateToggle({
     Name = "Auto Tap",
-    Info = "Continuously clicks (Clicker event).",
+    Info = "Continuously clicks (Clicker event) every 0.5 seconds.",
     CurrentValue = false,
     Flag = "AutoTap",
     Callback = function(Value)
@@ -173,6 +172,7 @@ MainTab:CreateToggle({
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
 local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
 
+-- Close UI Key default: E
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
@@ -196,5 +196,5 @@ SettingsTab:CreateInput({
 -- Apply size fix
 fixUISizeConstraints(Window)
 
--- Notification
+-- Notification label
 MainTab:CreateLabel("Auto Features Loaded! Ready to use.", MainSection)
