@@ -1,4 +1,4 @@
--- Load UI Library
+-- Load your UI library
 local Arrayfield
 local success, result = pcall(function()
     return loadstring(game:HttpGet("https://raw.githubusercontent.com/MoneYmAFaka/debte/refs/heads/main/uuu"))()
@@ -10,74 +10,51 @@ if not success then
 end
 Arrayfield = result
 
--- Initialize services
+-- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-
-if not LocalPlayer then
-    warn("Player not found. Script aborted.")
-    return
-end
 
 -- Toggles
 local autoTapEnabled = false
 local autoUpgradeEnabled = false
 local autoRebirthEnabled = false
 
--- Auto Tap loop
+-- Auto Tap
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
             pcall(function()
                 ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Clicker", 9e9):FireServer()
             end)
-            task.wait() -- very fast
+            task.wait()
         end
     end)
 end
 
--- Auto Upgrade loop (all 4 upgrades)
+-- Auto Upgrade (all 4)
 local function autoUpgradeLoop()
     task.spawn(function()
         while autoUpgradeEnabled do
             for i = 1, 4 do
-                local args = { [1] = tostring(i) }
                 pcall(function()
-                    ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("GemUpgrade", 9e9):FireServer(unpack(args))
+                    ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("GemUpgrade", 9e9):FireServer(i)
                 end)
-                task.wait(0.15) -- small delay between upgrades
+                task.wait(0.15)
             end
         end
     end)
 end
 
--- Auto Rebirth loop
+-- Auto Rebirth
 local function autoRebirthLoop()
     task.spawn(function()
         while autoRebirthEnabled do
-            local args = { [1] = 1 }
             pcall(function()
-                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Rebirth", 9e9):FireServer(1)
             end)
-            task.wait(1) -- avoid excessive spam
+            task.wait(1)
         end
     end)
-end
-
--- Fix UI constraints
-local function fixUISizeConstraints(window)
-    for _, element in pairs(window:GetDescendants()) do
-        if element:IsA("UISizeConstraint") then
-            if element.MaxSize.X < element.MinSize.X or element.MaxSize.Y < element.MinSize.Y then
-                element.MaxSize = Vector2.new(
-                    math.max(element.MaxSize.X, element.MinSize.X),
-                    math.max(element.MaxSize.Y, element.MinSize.Y)
-                )
-            end
-        end
-    end
 end
 
 -- UI Setup
@@ -94,42 +71,33 @@ local Window = Arrayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Main", 4483362458)
 
--- Auto Tap
 MainTab:CreateToggle({
     Name = "Auto Tap",
     CurrentValue = false,
     Flag = "AutoTap",
     Callback = function(Value)
         autoTapEnabled = Value
-        if Value then
-            autoTapLoop()
-        end
+        if Value then autoTapLoop() end
     end,
 })
 
--- Auto Upgrade (all 4)
 MainTab:CreateToggle({
-    Name = "Auto Upgrade (All Upgrades)",
+    Name = "Auto Upgrade (All)",
     CurrentValue = false,
     Flag = "AutoUpgrade",
     Callback = function(Value)
         autoUpgradeEnabled = Value
-        if Value then
-            autoUpgradeLoop()
-        end
+        if Value then autoUpgradeLoop() end
     end,
 })
 
--- Auto Rebirth
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
         autoRebirthEnabled = Value
-        if Value then
-            autoRebirthLoop()
-        end
+        if Value then autoRebirthLoop() end
     end,
 })
 
@@ -146,13 +114,8 @@ SettingsTab:CreateInput({
     Name = "Close UI Key",
     Info = "Enter a key to close the UI (default: E).",
     PlaceholderText = "Enter Key",
-    RemoveTextAfterFocusLost = false,
     Callback = function(Text)
         local key = Enum.KeyCode[Text:upper()]
-        if key then
-            closeKey = key
-        end
+        if key then closeKey = key end
     end,
 })
-
-fixUISizeConstraints(Window)
