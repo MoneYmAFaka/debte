@@ -21,11 +21,10 @@ if not LocalPlayer then
     return
 end
 
--- Auto feature toggles & state
+-- Toggles
 local autoTapEnabled = false
 local autoUpgradeEnabled = false
 local autoRebirthEnabled = false
-local selectedUpgrade = "1"
 
 -- Auto Tap loop
 local function autoTapLoop()
@@ -34,20 +33,22 @@ local function autoTapLoop()
             pcall(function()
                 ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Clicker", 9e9):FireServer()
             end)
-            task.wait() -- very fast tapping
+            task.wait() -- very fast
         end
     end)
 end
 
--- Auto Upgrade loop
+-- Auto Upgrade loop (all 4 upgrades)
 local function autoUpgradeLoop()
     task.spawn(function()
         while autoUpgradeEnabled do
-            local args = { [1] = selectedUpgrade }
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("GemUpgrade", 9e9):FireServer(unpack(args))
-            end)
-            task.wait(0.2) -- adjust speed if needed
+            for i = 1, 4 do
+                local args = { [1] = tostring(i) }
+                pcall(function()
+                    ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("GemUpgrade", 9e9):FireServer(unpack(args))
+                end)
+                task.wait(0.15) -- small delay between upgrades
+            end
         end
     end)
 end
@@ -93,7 +94,7 @@ local Window = Arrayfield:CreateWindow({
 
 local MainTab = Window:CreateTab("Main", 4483362458)
 
--- Auto Tap toggle
+-- Auto Tap
 MainTab:CreateToggle({
     Name = "Auto Tap",
     CurrentValue = false,
@@ -106,20 +107,9 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Upgrade dropdown
-MainTab:CreateDropdown({
-    Name = "Select Upgrade",
-    Options = { "1", "2", "3", "4" },
-    CurrentOption = "1",
-    Flag = "UpgradeSelector",
-    Callback = function(option)
-        selectedUpgrade = option
-    end,
-})
-
--- Auto Upgrade toggle
+-- Auto Upgrade (all 4)
 MainTab:CreateToggle({
-    Name = "Auto Upgrade",
+    Name = "Auto Upgrade (All Upgrades)",
     CurrentValue = false,
     Flag = "AutoUpgrade",
     Callback = function(Value)
@@ -130,7 +120,7 @@ MainTab:CreateToggle({
     end,
 })
 
--- Auto Rebirth toggle
+-- Auto Rebirth
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
     CurrentValue = false,
@@ -165,5 +155,4 @@ SettingsTab:CreateInput({
     end,
 })
 
--- Apply constraint fix
 fixUISizeConstraints(Window)
