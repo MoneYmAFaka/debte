@@ -1,4 +1,4 @@
--- Load UI Library (from your GitHub)
+-- Load UI Library
 local Arrayfield
 local success, result = pcall(function()
     return loadstring(game:HttpGet("https://raw.githubusercontent.com/MoneYmAFaka/debte/refs/heads/main/uuu"))()
@@ -16,30 +16,56 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Safety check
 if not LocalPlayer then
     warn("Player not found. Script aborted.")
     return
 end
 
--- Toggle & Case control
-local autoOpenEnabled = false
-local selectedCase = "FreeCase"
+-- Auto feature toggles & state
+local autoTapEnabled = false
+local autoUpgradeEnabled = false
+local autoRebirthEnabled = false
+local selectedUpgrade = "1"
 
--- Case opening loop
-local function autoOpenLoop()
+-- Auto Tap loop
+local function autoTapLoop()
     task.spawn(function()
-        while autoOpenEnabled do
-            local args = { [1] = selectedCase }
+        while autoTapEnabled do
             pcall(function()
-                ReplicatedStorage:WaitForChild("OpenCrate", 9e9):InvokeServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Clicker", 9e9):FireServer()
             end)
-            task.wait(6)
+            task.wait() -- very fast tapping
         end
     end)
 end
 
--- Fix UI size issues
+-- Auto Upgrade loop
+local function autoUpgradeLoop()
+    task.spawn(function()
+        while autoUpgradeEnabled do
+            local args = { [1] = selectedUpgrade }
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("GemUpgrade", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(0.2) -- adjust speed if needed
+        end
+    end)
+end
+
+-- Auto Rebirth loop
+local function autoRebirthLoop()
+    task.spawn(function()
+        while autoRebirthEnabled do
+            local args = { [1] = 1 }
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Remotes", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(1) -- avoid excessive spam
+        end
+    end)
+end
+
+-- Fix UI constraints
 local function fixUISizeConstraints(window)
     for _, element in pairs(window:GetDescendants()) do
         if element:IsA("UISizeConstraint") then
@@ -53,7 +79,7 @@ local function fixUISizeConstraints(window)
     end
 end
 
--- Create UI Window
+-- UI Setup
 local Window = Arrayfield:CreateWindow({
     Name = "Auto Features Hub",
     LoadingTitle = "Loading Interface",
@@ -65,49 +91,60 @@ local Window = Arrayfield:CreateWindow({
     }
 })
 
--- Main Tab
 local MainTab = Window:CreateTab("Main", 4483362458)
-local MainSection = MainTab:CreateSection("Auto Case Opener", false)
 
--- Dropdown to select case
-MainTab:CreateDropdown({
-    Name = "Select Case",
-    Options = {
-        "FreeCase",
-        "Snakebite",
-        "Horizon",
-        "WeaponCase1",
-        "WeaponCase2",
-        "eSports2013"
-    },
-    CurrentOption = "FreeCase",
-    Flag = "CaseSelector",
-    Callback = function(option)
-        selectedCase = option
-    end,
-})
-
--- Toggle to start auto open
+-- Auto Tap toggle
 MainTab:CreateToggle({
-    Name = "Auto Open Selected Case",
-    Info = "Loops OpenCrate every 6 seconds for selected case.",
+    Name = "Auto Tap",
     CurrentValue = false,
-    Flag = "AutoOpenCase",
+    Flag = "AutoTap",
     Callback = function(Value)
-        autoOpenEnabled = Value
+        autoTapEnabled = Value
         if Value then
-            autoOpenLoop()
+            autoTapLoop()
         end
     end,
 })
 
-MainTab:CreateLabel("Auto Case Opener Ready!", MainSection)
+-- Auto Upgrade dropdown
+MainTab:CreateDropdown({
+    Name = "Select Upgrade",
+    Options = { "1", "2", "3", "4" },
+    CurrentOption = "1",
+    Flag = "UpgradeSelector",
+    Callback = function(option)
+        selectedUpgrade = option
+    end,
+})
 
--- Settings Tab
+-- Auto Upgrade toggle
+MainTab:CreateToggle({
+    Name = "Auto Upgrade",
+    CurrentValue = false,
+    Flag = "AutoUpgrade",
+    Callback = function(Value)
+        autoUpgradeEnabled = Value
+        if Value then
+            autoUpgradeLoop()
+        end
+    end,
+})
+
+-- Auto Rebirth toggle
+MainTab:CreateToggle({
+    Name = "Auto Rebirth",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        autoRebirthEnabled = Value
+        if Value then
+            autoRebirthLoop()
+        end
+    end,
+})
+
+-- Settings tab
 local SettingsTab = Window:CreateTab("Settings", 4483362458)
-local SettingsSection = SettingsTab:CreateSection("UI Settings", false)
-
--- UI close key
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == closeKey then
