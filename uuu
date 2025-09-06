@@ -14,8 +14,10 @@ Arrayfield = success and result or nil
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
--- Auto Tap loop
+-- Auto Tap variables
 local autoTapEnabled = false
+local autoTapDelay = 0.03 -- slightly faster than before (~33 clicks/sec)
+
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
@@ -23,7 +25,25 @@ local function autoTapLoop()
             pcall(function()
                 ReplicatedStorage:WaitForChild("Events", 9e9):WaitForChild("Click", 9e9):FireServer(unpack(args))
             end)
-            task.wait(0.05) -- adjust delay as needed
+            task.wait(autoTapDelay)
+        end
+    end)
+end
+
+-- Auto Rebirth variables
+local autoRebirthEnabled = false
+local rebirthAmount = 1 -- default 1 per loop
+
+local function autoRebirthLoop()
+    task.spawn(function()
+        while autoRebirthEnabled do
+            local args = {
+                [1] = rebirthAmount
+            }
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Events", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+            end)
+            task.wait(1) -- you can adjust delay if needed
         end
     end)
 end
@@ -57,6 +77,36 @@ MainTab:CreateToggle({
     end,
 })
 
+-- Auto Rebirth Toggle
+MainTab:CreateToggle({
+    Name = "Auto Rebirth",
+    Info = "Automatically rebirths by input amount",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        autoRebirthEnabled = Value
+        if Value then
+            autoRebirthLoop()
+        end
+    end,
+})
+
+-- Input box for how many rebirths per loop
+MainTab:CreateInput({
+    Name = "Rebirth Amount",
+    Info = "Enter number of rebirths per loop (e.g., 1, 5, 10, 100, 1000)",
+    PlaceholderText = "1",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local num = tonumber(Text)
+        if num and num > 0 then
+            rebirthAmount = num
+        else
+            warn("Invalid rebirth amount, using previous value: " .. tostring(rebirthAmount))
+        end
+    end,
+})
+
 -- UI Close Hotkey (default: E)
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
@@ -65,4 +115,4 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-MainTab:CreateLabel("Auto Tap ready.", MainSection)
+MainTab:CreateLabel("Auto Tap and Auto Rebirth ready.", MainSection)
