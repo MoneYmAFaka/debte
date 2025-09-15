@@ -13,39 +13,55 @@ Arrayfield = success and result or nil
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
--- Auto Tap variables
+-- Auto Click variables
 local autoTapEnabled = false
 local autoTapDelay = 0.03 -- default delay (~33 clicks/sec)
 
+-- Auto Rebirth variables
+local autoRebirthEnabled = false
+local rebirthAmount = 1 -- default
+
+-- Auto Prestige variables
+local autoPrestigeEnabled = false
+
+-- Loops
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
-            local args = {}
             pcall(function()
                 ReplicatedStorage:WaitForChild("Events", 9e9)
                     :WaitForChild("Click", 9e9)
-                    :FireServer(unpack(args))
+                    :FireServer()
             end)
             task.wait(autoTapDelay)
         end
     end)
 end
 
--- Auto Rebirth variables
-local autoRebirthEnabled = false
-local rebirthAmount = 1 -- default amount
-
 local function autoRebirthLoop()
     task.spawn(function()
         while autoRebirthEnabled do
-            local args = { [1] = rebirthAmount }
             pcall(function()
                 ReplicatedStorage:WaitForChild("Events", 9e9)
                     :WaitForChild("Rebirth", 9e9)
-                    :InvokeServer(unpack(args))
+                    :InvokeServer(rebirthAmount)
             end)
-            task.wait(1) -- adjust delay if needed
+            task.wait(1) -- safe delay
+        end
+    end)
+end
+
+local function autoPrestigeLoop()
+    task.spawn(function()
+        while autoPrestigeEnabled do
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Events", 9e9)
+                    :WaitForChild("Prestige", 9e9)
+                    :FireServer()
+            end)
+            task.wait(1) -- don’t spam too hard, 1s loop is safe
         end
     end)
 end
@@ -72,9 +88,7 @@ MainTab:CreateToggle({
     Flag = "AutoClick",
     Callback = function(Value)
         autoTapEnabled = Value
-        if Value then
-            autoTapLoop()
-        end
+        if Value then autoTapLoop() end
     end,
 })
 
@@ -100,9 +114,7 @@ MainTab:CreateToggle({
     Flag = "AutoRebirth",
     Callback = function(Value)
         autoRebirthEnabled = Value
-        if Value then
-            autoRebirthLoop()
-        end
+        if Value then autoRebirthLoop() end
     end,
 })
 
@@ -122,6 +134,18 @@ MainTab:CreateInput({
     end,
 })
 
+-- Auto Prestige Toggle
+MainTab:CreateToggle({
+    Name = "Auto Prestige",
+    Info = "Automatically fires prestige",
+    CurrentValue = false,
+    Flag = "AutoPrestige",
+    Callback = function(Value)
+        autoPrestigeEnabled = Value
+        if Value then autoPrestigeLoop() end
+    end,
+})
+
 -- UI Close Hotkey (default: E)
 local closeKey = Enum.KeyCode.E
 UserInputService.InputBegan:Connect(function(input)
@@ -130,4 +154,4 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-MainTab:CreateLabel("Auto Click and Auto Rebirth ready.")
+MainTab:CreateLabel("✅ Auto Click, Auto Rebirth, and Auto Prestige ready.")
