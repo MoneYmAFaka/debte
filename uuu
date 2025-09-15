@@ -16,15 +16,14 @@ local UserInputService = game:GetService("UserInputService")
 
 -- Auto Tap variables
 local autoTapEnabled = false
-local autoTapDelay = 0.03 -- ~33 clicks per second
+local autoTapDelay = 0.03 -- default delay (~33 clicks/sec)
 
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
             local args = {}
             pcall(function()
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Events", 9e9)
+                ReplicatedStorage:WaitForChild("Events", 9e9)
                     :WaitForChild("Click", 9e9)
                     :FireServer(unpack(args))
             end)
@@ -40,12 +39,9 @@ local rebirthAmount = 1 -- default amount
 local function autoRebirthLoop()
     task.spawn(function()
         while autoRebirthEnabled do
-            local args = {
-                [1] = rebirthAmount
-            }
+            local args = { [1] = rebirthAmount }
             pcall(function()
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Events", 9e9)
+                ReplicatedStorage:WaitForChild("Events", 9e9)
                     :WaitForChild("Rebirth", 9e9)
                     :InvokeServer(unpack(args))
             end)
@@ -79,6 +75,20 @@ MainTab:CreateToggle({
         if Value then
             autoTapLoop()
         end
+    end,
+})
+
+-- Slider to adjust AutoClick speed
+MainTab:CreateSlider({
+    Name = "Click Speed",
+    Info = "Adjust how fast AutoClick runs (lower = faster)",
+    Range = {0.005, 0.1}, -- min 0.005s, max 0.1s
+    Increment = 0.005,
+    Suffix = "s",
+    CurrentValue = autoTapDelay,
+    Flag = "ClickSpeed",
+    Callback = function(Value)
+        autoTapDelay = Value
     end,
 })
 
