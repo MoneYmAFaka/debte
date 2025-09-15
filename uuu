@@ -16,14 +16,17 @@ local UserInputService = game:GetService("UserInputService")
 
 -- Auto Tap variables
 local autoTapEnabled = false
-local autoTapDelay = 0.03 -- slightly faster than before (~33 clicks/sec)
+local autoTapDelay = 0.03 -- ~33 clicks per second
 
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
             local args = {}
             pcall(function()
-                ReplicatedStorage:WaitForChild("Events", 9e9):WaitForChild("Click", 9e9):FireServer(unpack(args))
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Events", 9e9)
+                    :WaitForChild("Click", 9e9)
+                    :FireServer(unpack(args))
             end)
             task.wait(autoTapDelay)
         end
@@ -32,7 +35,7 @@ end
 
 -- Auto Rebirth variables
 local autoRebirthEnabled = false
-local rebirthAmount = 1 -- default 1 per loop
+local rebirthAmount = 1 -- default amount
 
 local function autoRebirthLoop()
     task.spawn(function()
@@ -41,9 +44,12 @@ local function autoRebirthLoop()
                 [1] = rebirthAmount
             }
             pcall(function()
-                ReplicatedStorage:WaitForChild("Events", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Events", 9e9)
+                    :WaitForChild("Rebirth", 9e9)
+                    :InvokeServer(unpack(args))
             end)
-            task.wait(1) -- you can adjust delay if needed
+            task.wait(1) -- adjust delay if needed
         end
     end)
 end
@@ -61,14 +67,13 @@ local Window = Arrayfield:CreateWindow({
 })
 
 local MainTab = Window:CreateTab("Main", 4483362458)
-local MainSection = MainTab:CreateSection("Auto Features", false)
 
 -- Auto Tap Toggle
 MainTab:CreateToggle({
-    Name = "Auto Tap",
+    Name = "Auto Click",
     Info = "Loops Events.Click",
     CurrentValue = false,
-    Flag = "AutoTap",
+    Flag = "AutoClick",
     Callback = function(Value)
         autoTapEnabled = Value
         if Value then
@@ -80,7 +85,7 @@ MainTab:CreateToggle({
 -- Auto Rebirth Toggle
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
-    Info = "Automatically rebirths by input amount",
+    Info = "Automatically invokes rebirths by input amount",
     CurrentValue = false,
     Flag = "AutoRebirth",
     Callback = function(Value)
@@ -91,10 +96,10 @@ MainTab:CreateToggle({
     end,
 })
 
--- Input box for how many rebirths per loop
+-- Input box for rebirth amount
 MainTab:CreateInput({
     Name = "Rebirth Amount",
-    Info = "Enter number of rebirths per loop (e.g., 1, 5, 10, 100, 1000)",
+    Info = "Enter number of rebirths per loop (e.g., 1, 5, 10, 100)",
     PlaceholderText = "1",
     RemoveTextAfterFocusLost = false,
     Callback = function(Text)
@@ -115,4 +120,4 @@ UserInputService.InputBegan:Connect(function(input)
     end
 end)
 
-MainTab:CreateLabel("Auto Tap and Auto Rebirth ready.", MainSection)
+MainTab:CreateLabel("Auto Click and Auto Rebirth ready.")
