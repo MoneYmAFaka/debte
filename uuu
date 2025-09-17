@@ -12,146 +12,54 @@ Arrayfield = success and result or nil
 
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
--- Auto Click variables
+-- // Auto Tap (Remotes.Click)
 local autoTapEnabled = false
-local autoTapDelay = 0.03 -- default delay (~33 clicks/sec)
+local autoTapDelay = 0.2 -- default 0.2s
 
--- Auto Rebirth variables
-local autoRebirthEnabled = false
-local rebirthAmount = 1 -- default
-
--- Auto Prestige variables
-local autoPrestigeEnabled = false
-
--- Loops
 local function autoTapLoop()
     task.spawn(function()
         while autoTapEnabled do
             pcall(function()
-                ReplicatedStorage:WaitForChild("Events", 9e9)
+                local args = {}
+                ReplicatedStorage:WaitForChild("Remotes", 9e9)
                     :WaitForChild("Click", 9e9)
-                    :FireServer()
+                    :FireServer(unpack(args))
             end)
             task.wait(autoTapDelay)
         end
     end)
 end
 
-local function autoRebirthLoop()
+-- // Auto Upgrade (Remotes.Upgrades.Upgrade)
+local autoUpgradeEnabled = false
+local upgradeArgsList = {
+    { "DNA", "DNA", 1 },
+    { "DNA", "BaseDNA", 1 },
+    { "DNA", "AutoClicker", 1 },
+}
+
+local function autoUpgradeLoop()
     task.spawn(function()
-        while autoRebirthEnabled do
+        while autoUpgradeEnabled do
             pcall(function()
-                ReplicatedStorage:WaitForChild("Events", 9e9)
-                    :WaitForChild("Rebirth", 9e9)
-                    :InvokeServer(rebirthAmount)
+                for _, args in ipairs(upgradeArgsList) do
+                    ReplicatedStorage:WaitForChild("Remotes", 9e9)
+                        :WaitForChild("Upgrades", 9e9)
+                        :WaitForChild("Upgrade", 9e9)
+                        :FireServer(unpack(args))
+                    task.wait(0.1) -- small spacing so it doesn’t flood
+                end
             end)
-            task.wait(1) -- safe delay
+            task.wait(1) -- upgrade cycle every second
         end
     end)
 end
 
-local function autoPrestigeLoop()
-    task.spawn(function()
-        while autoPrestigeEnabled do
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Events", 9e9)
-                    :WaitForChild("Prestige", 9e9)
-                    :FireServer()
-            end)
-            task.wait(1) -- don’t spam too hard, 1s loop is safe
-        end
-    end)
-end
+-- // Example toggles
+-- You can flip these manually to start/stop loops
+autoTapEnabled = true
+autoTapLoop()
 
--- Create UI
-local Window = Arrayfield:CreateWindow({
-    Name = "Auto Features Hub",
-    LoadingTitle = "Loading Interface",
-    LoadingSubtitle = "by xAI",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "AutoHub",
-        FileName = "Config"
-    }
-})
-
-local MainTab = Window:CreateTab("Main", 4483362458)
-
--- Auto Tap Toggle
-MainTab:CreateToggle({
-    Name = "Auto Click",
-    Info = "Loops Events.Click",
-    CurrentValue = false,
-    Flag = "AutoClick",
-    Callback = function(Value)
-        autoTapEnabled = Value
-        if Value then autoTapLoop() end
-    end,
-})
-
--- Slider to adjust AutoClick speed
-MainTab:CreateSlider({
-    Name = "Click Speed",
-    Info = "Adjust how fast AutoClick runs (lower = faster)",
-    Range = {0.005, 0.1}, -- min 0.005s, max 0.1s
-    Increment = 0.005,
-    Suffix = "s",
-    CurrentValue = autoTapDelay,
-    Flag = "ClickSpeed",
-    Callback = function(Value)
-        autoTapDelay = Value
-    end,
-})
-
--- Auto Rebirth Toggle
-MainTab:CreateToggle({
-    Name = "Auto Rebirth",
-    Info = "Automatically invokes rebirths by input amount",
-    CurrentValue = false,
-    Flag = "AutoRebirth",
-    Callback = function(Value)
-        autoRebirthEnabled = Value
-        if Value then autoRebirthLoop() end
-    end,
-})
-
--- Input box for rebirth amount
-MainTab:CreateInput({
-    Name = "Rebirth Amount",
-    Info = "Enter number of rebirths per loop (e.g., 1, 5, 10, 100)",
-    PlaceholderText = "1",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(Text)
-        local num = tonumber(Text)
-        if num and num > 0 then
-            rebirthAmount = num
-        else
-            warn("Invalid rebirth amount, using previous value: " .. tostring(rebirthAmount))
-        end
-    end,
-})
-
--- Auto Prestige Toggle
-MainTab:CreateToggle({
-    Name = "Auto Prestige",
-    Info = "Automatically fires prestige",
-    CurrentValue = false,
-    Flag = "AutoPrestige",
-    Callback = function(Value)
-        autoPrestigeEnabled = Value
-        if Value then autoPrestigeLoop() end
-    end,
-})
-
--- UI Close Hotkey (default: E)
-local closeKey = Enum.KeyCode.E
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == closeKey then
-        Window:Destroy()
-    end
-end)
-
-MainTab:CreateLabel("✅ Auto Click, Auto Rebirth, and Auto Prestige ready.")
+autoUpgradeEnabled = true
+autoUpgradeLoop()
