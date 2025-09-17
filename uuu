@@ -8,18 +8,19 @@ if not success then
     warn("Failed to load Arrayfield UI library: " .. tostring(result))
     return
 end
-Arrayfield = success and result or nil
+Arrayfield = result
 
 -- Initialize services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 
--- // Auto Tap (Remotes.Click)
-local autoTapEnabled = false
-local autoTapDelay = 0.2 -- default 0.2s
+-- Auto Tap Loop
+local autoTapLoopEnabled = false
+local autoTapDelay = 0.2
 
 local function autoTapLoop()
     task.spawn(function()
-        while autoTapEnabled do
+        while autoTapLoopEnabled do
             pcall(function()
                 local args = {}
                 ReplicatedStorage:WaitForChild("Remotes", 9e9)
@@ -31,7 +32,7 @@ local function autoTapLoop()
     end)
 end
 
--- // Auto Upgrade (Remotes.Upgrades.Upgrade)
+-- Auto Upgrade Loop
 local autoUpgradeEnabled = false
 local upgradeArgsList = {
     { "DNA", "DNA", 1 },
@@ -48,18 +49,56 @@ local function autoUpgradeLoop()
                         :WaitForChild("Upgrades", 9e9)
                         :WaitForChild("Upgrade", 9e9)
                         :FireServer(unpack(args))
-                    task.wait(0.1) -- small spacing so it doesn’t flood
+                    task.wait(0.1) -- prevent spamming too hard
                 end
             end)
-            task.wait(1) -- upgrade cycle every second
+            task.wait(1) -- upgrade cycle delay
         end
     end)
 end
 
--- // Example toggles
--- You can flip these manually to start/stop loops
-autoTapEnabled = true
-autoTapLoop()
+-- Create UI
+local Window = Arrayfield:CreateWindow({
+    Name = "Auto Features Hub",
+    LoadingTitle = "Loading Interface",
+    LoadingSubtitle = "by xAI",
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = "AutoHub",
+        FileName = "Config"
+    }
+})
 
-autoUpgradeEnabled = true
-autoUpgradeLoop()
+local MainTab = Window:CreateTab("Main", 4483362458)
+
+-- Auto Tap Loop Toggle
+MainTab:CreateToggle({
+    Name = "Auto Tap Loop (0.2s)",
+    Info = "Automatically taps every 0.2s",
+    CurrentValue = false,
+    Flag = "AutoTapLoop",
+    Callback = function(Value)
+        autoTapLoopEnabled = Value
+        if Value then autoTapLoop() end
+    end,
+})
+
+-- Auto Upgrade Toggle
+MainTab:CreateToggle({
+    Name = "Auto Upgrade",
+    Info = "Cycles DNA, BaseDNA, AutoClicker upgrades",
+    CurrentValue = false,
+    Flag = "AutoUpgrade",
+    Callback = function(Value)
+        autoUpgradeEnabled = Value
+        if Value then autoUpgradeLoop() end
+    end,
+})
+
+-- UI Close Hotkey (default: E)
+local closeKey = Enum.KeyCode.E
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == closeKey then
+        Window:Destroy()
+    end
+end)
