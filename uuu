@@ -1,104 +1,152 @@
--- Load Arrayfield UI library with error handling
-local Arrayfield
-local success, result = pcall(function()
-    return loadstring(game:HttpGet("https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"))()
-end)
+-- Star & Enemy Farm (WindUI) - by Fry
+local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
 
-if not success then
-    warn("Failed to load Arrayfield UI library: " .. tostring(result))
-    return
+local Window = WindUI:CreateWindow({
+    Title = "Star & Enemy Farm",
+    Author = "by Fry",
+    Icon = "solar:star-bold",
+    Theme = "MonokaiPro",
+    NewElements = true,
+    Transparent = true,
+    Acrylic = true,
+})
+Window:Open()
+
+local Main = Window:Tab({Title = "Main", Icon = "solar:cart-large-bold"})
+Main:Select()
+
+-- Remotes (your exact paths)
+local Knit = game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.5.1"):WaitForChild("knit")
+local ClickRemote = Knit:WaitForChild("Services"):WaitForChild("ClickService"):WaitForChild("RF"):WaitForChild("Click")
+local OpenStarRemote = Knit:WaitForChild("Services"):WaitForChild("StarService"):WaitForChild("RF"):WaitForChild("OpenStar")
+
+local StarsFolder = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Models"):WaitForChild("Stars")
+local EnemiesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Models"):WaitForChild("Enemies")
+
+local selectedStar = nil
+local selectedEnemy = nil
+local autoClicking = false
+local autoHatching = false
+local autoTeleporting = false
+local hatchAmount = 1
+
+local function GetStars()
+    local list = {}
+    for _, v in ipairs(StarsFolder:GetChildren()) do
+        if v:IsA("Model") then table.insert(list, v.Name) end
+    end
+    table.sort(list)
+    return list
 end
-Arrayfield = result
 
--- Initialize services
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
+local function GetEnemies()
+    local list = {}
+    for _, v in ipairs(EnemiesFolder:GetChildren()) do
+        if v:IsA("Model") then table.insert(list, v.Name) end
+    end
+    table.sort(list)
+    return list
+end
 
--- Auto Tap Loop
-local autoTapLoopEnabled = false
-local autoTapDelay = 0.2
+local function TeleportToEnemy()
+    if not selectedEnemy then return end
+    local char = game.Players.LocalPlayer.Character
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
 
-local function autoTapLoop()
-    task.spawn(function()
-        while autoTapLoopEnabled do
-            pcall(function()
-                local args = {}
-                ReplicatedStorage:WaitForChild("Remotes", 9e9)
-                    :WaitForChild("Click", 9e9)
-                    :FireServer(unpack(args))
-            end)
-            task.wait(autoTapDelay)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj.Name == selectedEnemy and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+            root.CFrame = obj:GetPivot() * CFrame.new(0, 12, 12)
+            return
         end
-    end)
+    end
 end
 
--- Auto Upgrade Loop
-local autoUpgradeEnabled = false
-local upgradeArgsList = {
-    { "DNA", "DNA", 1 },
-    { "DNA", "BaseDNA", 1 },
-    { "DNA", "AutoClicker", 1 },
-}
-
-local function autoUpgradeLoop()
-    task.spawn(function()
-        while autoUpgradeEnabled do
-            pcall(function()
-                for _, args in ipairs(upgradeArgsList) do
-                    ReplicatedStorage:WaitForChild("Remotes", 9e9)
-                        :WaitForChild("Upgrades", 9e9)
-                        :WaitForChild("Upgrade", 9e9)
-                        :FireServer(unpack(args))
-                    task.wait(0.1) -- prevent spamming too hard
+-- ==================== AUTO CLICK ====================
+Main:Section({Title = "Auto Click (Attacking)"})
+Main:Toggle({
+    Title = "Auto Click",
+    Callback = function(v)
+        autoClicking = v
+        if v then
+            task.spawn(function()
+                while autoClicking do
+                    pcall(function() ClickRemote:InvokeServer() end)
+                    task.wait(0.08)
                 end
             end)
-            task.wait(1) -- upgrade cycle delay
         end
-    end)
-end
-
--- Create UI
-local Window = Arrayfield:CreateWindow({
-    Name = "Auto Features Hub",
-    LoadingTitle = "Loading Interface",
-    LoadingSubtitle = "by xAI",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "AutoHub",
-        FileName = "Config"
-    }
-})
-
-local MainTab = Window:CreateTab("Main", 4483362458)
-
--- Auto Tap Loop Toggle
-MainTab:CreateToggle({
-    Name = "Auto Tap Loop (0.2s)",
-    Info = "Automatically taps every 0.2s",
-    CurrentValue = false,
-    Flag = "AutoTapLoop",
-    Callback = function(Value)
-        autoTapLoopEnabled = Value
-        if Value then autoTapLoop() end
     end,
 })
 
--- Auto Upgrade Toggle
-MainTab:CreateToggle({
-    Name = "Auto Upgrade",
-    Info = "Cycles DNA, BaseDNA, AutoClicker upgrades",
-    CurrentValue = false,
-    Flag = "AutoUpgrade",
-    Callback = function(Value)
-        autoUpgradeEnabled = Value
-        if Value then autoUpgradeLoop() end
+-- ==================== STAR HATCHING ====================
+Main:Section({Title = "Star Hatching"})
+local starDropdown = Main:Dropdown({
+    Title = "Select Star",
+    Values = GetStars(),
+    SearchBarEnabled = true,
+    Callback = function(v) selectedStar = v end,
+})
+
+Main:Button({Title = "Refresh Stars", Callback = function() starDropdown:Refresh(GetStars()) end})
+
+Main:Slider({
+    Title = "Hatch Amount",
+    Value = {Min = 1, Max = 50, Default = 1},
+    Callback = function(v) hatchAmount = v end,
+})
+
+Main:Toggle({
+    Title = "Auto Hatch Selected Star",
+    Callback = function(v)
+        autoHatching = v
+        if v and selectedStar then
+            task.spawn(function()
+                while autoHatching do
+                    pcall(function() OpenStarRemote:InvokeServer(selectedStar, hatchAmount) end)
+                    task.wait(0.1)
+                end
+            end)
+        end
     end,
 })
 
--- UI Close Hotkey (default: E)
-local closeKey = Enum.KeyCode.E
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == closeKey then
-        Window:Destroy()
-    end
-end)
+-- ==================== ENEMY TARGETING ====================
+Main:Section({Title = "Enemy Targeting"})
+
+local enemyDropdown = Main:Dropdown({
+    Title = "Select Enemy",
+    Values = GetEnemies(),
+    SearchBarEnabled = true,
+    Callback = function(v) selectedEnemy = v end,
+})
+
+Main:Button({Title = "Refresh Enemies", Callback = function() enemyDropdown:Refresh(GetEnemies()) end})
+
+Main:Button({
+    Title = "Teleport to Selected Enemy",
+    Callback = function()
+        if selectedEnemy then
+            TeleportToEnemy()
+            WindUI:Notify({Title = "Teleported", Content = selectedEnemy})
+        end
+    end,
+})
+
+Main:Toggle({
+    Title = "Auto Teleport to Selected Enemy",
+    Callback = function(v)
+        autoTeleporting = v
+        if v and selectedEnemy then
+            task.spawn(function()
+                while autoTeleporting do
+                    TeleportToEnemy()
+                    task.wait(1.5)
+                end
+            end)
+        end
+    end,
+})
+
+WindUI:Notify({Title = "Loaded!", Content = "Select enemy → Teleport + Auto Click = Farm", Duration = 9})
