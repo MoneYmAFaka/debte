@@ -1,14 +1,15 @@
+-- Star & Enemy Farm - FIXED Auto TP (Mobs + MobSpawns) + Mobile Scroll
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
 
 local Window = WindUI:CreateWindow({
-    Title = "Star & Enemy Farm - Mobile Scroll",
+    Title = "Star & Enemy Farm - TP FIXED",
     Author = "by Fry",
     Icon = "solar:star-bold",
     Theme = "MonokaiPro",
     NewElements = true,
     Transparent = true,
     Acrylic = true,
-    Size = UDim2.new(0, 460, 0, 740),
+    Size = UDim2.new(0, 460, 0, 760),  -- Tall for mobile scroll
 })
 Window:Open()
 
@@ -24,25 +25,24 @@ task.spawn(function()
             scroller.ScrollingEnabled = true
             scroller.ScrollBarThickness = 10
             scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
-            scroller.CanvasSize = UDim2.new(0, 0, 0, 0)
         end
     end)
 end)
 
--- ==================== REMOTES & FOLDERS ====================
+-- ==================== REMOTES ====================
 local Knit = game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.5.1"):WaitForChild("knit")
-local ClickRemote    = Knit:WaitForChild("Services"):WaitForChild("ClickService"):WaitForChild("RF"):WaitForChild("Click")
-local OpenStarRemote = Knit:WaitForChild("Services"):WaitForChild("StarService"):WaitForChild("RF"):WaitForChild("OpenStar")
+local ClickRemote     = Knit:WaitForChild("Services"):WaitForChild("ClickService"):WaitForChild("RF"):WaitForChild("Click")
+local OpenStarRemote  = Knit:WaitForChild("Services"):WaitForChild("StarService"):WaitForChild("RF"):WaitForChild("OpenStar")
 
 local StarsFolder   = game:GetService("ReplicatedStorage").Assets.Models.Stars
-local EnemiesFolder = game:GetService("ReplicatedStorage").Assets.Models.Enemies
+local EnemiesFolder = game:GetService("ReplicatedStorage").Assets.Models.Enemies   -- for dropdown templates
 
-local selectedStar    = nil
-local selectedEnemy   = nil
-local autoClicking    = false
-local autoHatching    = false
+local selectedStar   = nil
+local selectedEnemy  = nil
+local autoClicking   = false
+local autoHatching   = false
 local autoTeleporting = false
-local hatchAmount     = 1
+local hatchAmount    = 1
 
 local function GetStars()
     local list = {}
@@ -53,69 +53,54 @@ local function GetStars()
     return list
 end
 
--- ==================== FIXED: Find enemy in workspace ====================
+-- ==================== FIXED TELEPORT (searches Mobs + MobSpawns) ====================
 local function FindNextAliveEnemy()
     if not selectedEnemy then return nil end
-    local player = game.Players.LocalPlayer
-    local char = player.Character
-    if not char then return nil end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return nil end
-
+    local char = game.Players.LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local root = char.HumanoidRootPart
     local best, bestDist = nil, math.huge
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        -- Match by name (also check partial match in case of naming differences)
-        if obj:IsA("Model") and obj.Name == selectedEnemy then
-            local hum = obj:FindFirstChildOfClass("Humanoid")
-            local targetRoot = obj:FindFirstChild("HumanoidRootPart")
-
-            -- If no HumanoidRootPart, try PrimaryPart or any BasePart
-            if not targetRoot then
-                targetRoot = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-            end
-
-            if targetRoot then
-                -- Check if alive: either has Humanoid with health > 0, or no humanoid (static enemy)
-                local isAlive = true
-                if hum then
-                    isAlive = hum.Health > 0
-                end
-
-                if isAlive then
-                    local dist = (targetRoot.Position - root.Position).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist
-                        best = obj
-                    end
+    -- 1. Check workspace.Mobs first (live enemies)
+    local mobsFolder = workspace:FindFirstChild("Mobs")
+    if mobsFolder then
+        for _, obj in ipairs(mobsFolder:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name == selectedEnemy then
+                local hum = obj:FindFirstChild("Humanoid")
+                local hrp = obj:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and hrp then
+                    local dist = (hrp.Position - root.Position).Magnitude
+                    if dist < bestDist then bestDist = dist best = obj end
                 end
             end
         end
     end
+
+    -- 2. Check workspace.MobSpawns (sometimes mobs spawn here)
+    local spawnFolder = workspace:FindFirstChild("MobSpawns")
+    if spawnFolder and not best then
+        for _, obj in ipairs(spawnFolder:GetDescendants()) do
+            if obj:IsA("Model") and obj.Name == selectedEnemy then
+                local hum = obj:FindFirstChild("Humanoid")
+                local hrp = obj:FindFirstChild("HumanoidRootPart")
+                if hum and hum.Health > 0 and hrp then
+                    local dist = (hrp.Position - root.Position).Magnitude
+                    if dist < bestDist then bestDist = dist best = obj end
+                end
+            end
+        end
+    end
+
     return best
 end
 
--- ==================== FIXED: TeleportTo ====================
 local function TeleportTo(enemyModel)
-    local player = game.Players.LocalPlayer
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    -- Find target position
-    local targetPart = enemyModel:FindFirstChild("HumanoidRootPart")
-        or enemyModel.PrimaryPart
-        or enemyModel:FindFirstChildWhichIsA("BasePart")
-
-    if targetPart then
-        -- Teleport slightly in front and above
-        root.CFrame = targetPart.CFrame * CFrame.new(0, 5, 8)
-    else
-        -- Fallback: use GetPivot (returns CFrame)
-        local pivotCF = enemyModel:GetPivot()
-        root.CFrame = pivotCF * CFrame.new(0, 5, 8)
-    end
+    if not enemyModel then return end
+    local char = game.Players.LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local root = char.HumanoidRootPart
+    local targetRoot = enemyModel:FindFirstChild("HumanoidRootPart") or enemyModel:GetPivot()
+    root.CFrame = targetRoot * CFrame.new(0, 15, 10)  -- safer height & distance
 end
 
 -- ==================== AUTO CLICK ====================
@@ -127,7 +112,7 @@ Main:Toggle({
         if v then
             task.spawn(function()
                 while autoClicking do
-                    pcall(function() ClickRemote:InvokeServer() end)
+                    pcall(ClickRemote.InvokeServer, ClickRemote)
                     task.wait(0.08)
                 end
             end)
@@ -159,7 +144,7 @@ Main:Toggle({
         if v and selectedStar then
             task.spawn(function()
                 while autoHatching do
-                    pcall(function() OpenStarRemote:InvokeServer(selectedStar, hatchAmount) end)
+                    pcall(OpenStarRemote.InvokeServer, OpenStarRemote, selectedStar, hatchAmount)
                     task.wait(0.12)
                 end
             end)
@@ -167,158 +152,61 @@ Main:Toggle({
     end,
 })
 
--- ==================== ENEMY TARGETING (FIXED SMART LOOP) ====================
-Main:Section({Title = "Enemy Targeting - Auto TP"})
+-- ==================== ENEMY TARGETING ====================
+Main:Section({Title = "Enemy Targeting - Auto TP Loop"})
 
 local enemyDrop = Main:Dropdown({
     Title = "Select Enemy Type",
-    Values = {},
+    Values = {},  -- fill with Refresh button
     SearchBarEnabled = true,
-    Callback = function(v)
-        selectedEnemy = v
-        print("[AutoTP] Selected enemy type:", v)
+    Callback = function(v) selectedEnemy = v end,
+})
+
+Main:Button({
+    Title = "Refresh Enemy List",
+    Callback = function()
+        local list = {}
+        for _, v in ipairs(EnemiesFolder:GetChildren()) do
+            if v:IsA("Model") then table.insert(list, v.Name) end
+        end
+        table.sort(list)
+        enemyDrop:Refresh(list)
+        WindUI:Notify({Title = "Refreshed", Content = #list .. " enemies"})
     end,
 })
 
-Main:Button({Title = "Refresh Enemy List", Callback = function()
-    local list = {}
-    -- Pull from ReplicatedStorage folder
-    for _, v in ipairs(EnemiesFolder:GetChildren()) do
-        if v:IsA("Model") then table.insert(list, v.Name) end
-    end
-    -- ALSO scan workspace for any enemy models currently alive
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
-            -- Skip the local player's character
-            local isPlayer = false
-            for _, p in ipairs(game.Players:GetPlayers()) do
-                if p.Character == obj then isPlayer = true break end
-            end
-            if not isPlayer and not table.find(list, obj.Name) then
-                table.insert(list, obj.Name)
-            end
-        end
-    end
-    table.sort(list)
-    enemyDrop:Refresh(list)
-    print("[AutoTP] Enemy list refreshed:", #list, "types found")
-end})
-
 Main:Button({
-    Title = "Teleport to Selected (Once)",
+    Title = "Teleport to Selected",
     Callback = function()
-        if not selectedEnemy then
-            WindUI:Notify({Title = "Error", Content = "Select an enemy type first!", Duration = 3})
-            return
-        end
         local target = FindNextAliveEnemy()
         if target then
             TeleportTo(target)
-            print("[AutoTP] Teleported to", target.Name)
+            WindUI:Notify({Title = "Teleported", Content = selectedEnemy})
         else
-            WindUI:Notify({Title = "No Target", Content = "No alive enemy of type: " .. selectedEnemy, Duration = 3})
+            WindUI:Notify({Title = "No Enemy", Content = "No alive " .. (selectedEnemy or "enemy") .. " found"})
         end
     end,
 })
 
--- ==================== FIXED AUTO TP LOOP ====================
 Main:Toggle({
-    Title = "Auto Teleport (loops on death)",
+    Title = "Auto Teleport (loops when dead)",
     Callback = function(v)
         autoTeleporting = v
-        if v then
-            if not selectedEnemy then
-                WindUI:Notify({Title = "Error", Content = "Select an enemy type first!", Duration = 3})
-                return
-            end
-            print("[AutoTP] Auto TP started for:", selectedEnemy)
+        if v and selectedEnemy then
             task.spawn(function()
-                local currentTarget = nil
-
                 while autoTeleporting do
-                    -- If we have no target, or target died, find a new one
-                    local needNewTarget = false
-
-                    if currentTarget == nil then
-                        needNewTarget = true
-                    elseif not currentTarget.Parent then
-                        -- Model was removed from workspace (destroyed)
-                        needNewTarget = true
-                        print("[AutoTP] Target destroyed, finding new one...")
+                    local target = FindNextAliveEnemy()
+                    if target then
+                        TeleportTo(target)
+                        task.wait(0.8)   -- fast re-check while alive
                     else
-                        local hum = currentTarget:FindFirstChildOfClass("Humanoid")
-                        if hum and hum.Health <= 0 then
-                            needNewTarget = true
-                            print("[AutoTP] Target died, finding new one...")
-                        end
-                    end
-
-                    if needNewTarget then
-                        currentTarget = FindNextAliveEnemy()
-                        if currentTarget then
-                            print("[AutoTP] New target found:", currentTarget.Name)
-                        else
-                            print("[AutoTP] No alive enemies, waiting...")
-                        end
-                    end
-
-                    if currentTarget then
-                        -- Keep teleporting to it (stay on top of it)
-                        pcall(function()
-                            TeleportTo(currentTarget)
-                        end)
-                        task.wait(0.5) -- TP refresh rate while enemy is alive
-                    else
-                        task.wait(1.5) -- Wait before scanning again
+                        task.wait(2.5)   -- slower when none alive
                     end
                 end
-                print("[AutoTP] Auto TP stopped.")
             end)
+            WindUI:Notify({Title = "Auto TP ON", Content = "Will loop to next " .. selectedEnemy})
         end
     end,
 })
 
--- ==================== DEBUG SECTION ====================
-Main:Section({Title = "Debug"})
-Main:Button({Title = "Print Workspace Enemies", Callback = function()
-    local count = 0
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj:FindFirstChildOfClass("Humanoid") then
-            local isPlayer = false
-            for _, p in ipairs(game.Players:GetPlayers()) do
-                if p.Character == obj then isPlayer = true break end
-            end
-            if not isPlayer then
-                local hum = obj:FindFirstChildOfClass("Humanoid")
-                print(string.format("  [Enemy] %s | HP: %s/%s | HasRoot: %s",
-                    obj.Name,
-                    tostring(hum.Health),
-                    tostring(hum.MaxHealth),
-                    tostring(obj:FindFirstChild("HumanoidRootPart") ~= nil)
-                ))
-                count = count + 1
-            end
-        end
-    end
-    print("[Debug] Total enemy models in workspace:", count)
-end})
-
-Main:Button({Title = "Test Find Selected Enemy", Callback = function()
-    if not selectedEnemy then
-        print("[Debug] No enemy type selected!")
-        return
-    end
-    local target = FindNextAliveEnemy()
-    if target then
-        local hum = target:FindFirstChildOfClass("Humanoid")
-        print(string.format("[Debug] Found: %s | HP: %s | Distance: %s",
-            target.Name,
-            hum and tostring(hum.Health) or "N/A",
-            tostring((target:GetPivot().Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
-        ))
-    else
-        print("[Debug] No alive enemy found for type:", selectedEnemy)
-    end
-end})
-
-WindUI:Notify({Title = "Loaded!", Content = "Use Debug buttons to check if enemies are detected. Then enable Auto TP!", Duration = 10})
+WindUI:Notify({Title = "Loaded!", Content = "TP now searches Mobs + MobSpawns folders!", Duration = 10})
