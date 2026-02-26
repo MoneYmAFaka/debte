@@ -1,34 +1,49 @@
--- Star & Enemy Farm (WindUI) - by Fry
+-- Star & Enemy Farm - Mobile Scroll FIXED + Smart Auto TP Loop
 local WindUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
 
 local Window = WindUI:CreateWindow({
-    Title = "Star & Enemy Farm",
+    Title = "Star & Enemy Farm - Mobile Scroll",
     Author = "by Fry",
     Icon = "solar:star-bold",
     Theme = "MonokaiPro",
     NewElements = true,
     Transparent = true,
     Acrylic = true,
+    Size = UDim2.new(0, 460, 0, 740),  -- Tall for easy scrolling on mobile
 })
 Window:Open()
 
 local Main = Window:Tab({Title = "Main", Icon = "solar:cart-large-bold"})
 Main:Select()
 
--- Remotes (your exact paths)
+-- ==================== MOBILE SCROLL FIX ====================
+task.spawn(function()
+    task.wait(0.5)
+    pcall(function()
+        local scroller = Main:FindFirstChildWhichIsA("ScrollingFrame", true)
+        if scroller then
+            scroller.ScrollingEnabled = true
+            scroller.ScrollBarThickness = 10
+            scroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            scroller.CanvasSize = UDim2.new(0,0,0,0)
+        end
+    end)
+end)
+
+-- ==================== REMOTES & FOLDERS ====================
 local Knit = game:GetService("ReplicatedStorage"):WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.5.1"):WaitForChild("knit")
-local ClickRemote = Knit:WaitForChild("Services"):WaitForChild("ClickService"):WaitForChild("RF"):WaitForChild("Click")
-local OpenStarRemote = Knit:WaitForChild("Services"):WaitForChild("StarService"):WaitForChild("RF"):WaitForChild("OpenStar")
+local ClickRemote     = Knit:WaitForChild("Services"):WaitForChild("ClickService"):WaitForChild("RF"):WaitForChild("Click")
+local OpenStarRemote  = Knit:WaitForChild("Services"):WaitForChild("StarService"):WaitForChild("RF"):WaitForChild("OpenStar")
 
-local StarsFolder = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Models"):WaitForChild("Stars")
-local EnemiesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Models"):WaitForChild("Enemies")
+local StarsFolder   = game:GetService("ReplicatedStorage").Assets.Models.Stars
+local EnemiesFolder = game:GetService("ReplicatedStorage").Assets.Models.Enemies
 
-local selectedStar = nil
-local selectedEnemy = nil
-local autoClicking = false
-local autoHatching = false
+local selectedStar   = nil
+local selectedEnemy  = nil   -- enemy TYPE name
+local autoClicking   = false
+local autoHatching   = false
 local autoTeleporting = false
-local hatchAmount = 1
+local hatchAmount    = 1
 
 local function GetStars()
     local list = {}
@@ -39,28 +54,36 @@ local function GetStars()
     return list
 end
 
-local function GetEnemies()
-    local list = {}
-    for _, v in ipairs(EnemiesFolder:GetChildren()) do
-        if v:IsA("Model") then table.insert(list, v.Name) end
-    end
-    table.sort(list)
-    return list
-end
-
-local function TeleportToEnemy()
-    if not selectedEnemy then return end
+-- Finds the next alive enemy of the selected type (closest one)
+local function FindNextAliveEnemy()
+    if not selectedEnemy then return nil end
     local char = game.Players.LocalPlayer.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local root = char.HumanoidRootPart
+    local best, bestDist = nil, math.huge
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name == selectedEnemy and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
-            root.CFrame = obj:GetPivot() * CFrame.new(0, 12, 12)
-            return
+        if obj:IsA("Model") and obj.Name == selectedEnemy then
+            local hum = obj:FindFirstChild("Humanoid")
+            local targetRoot = obj:FindFirstChild("HumanoidRootPart")
+            if hum and hum.Health > 0 and targetRoot then
+                local dist = (targetRoot.Position - root.Position).Magnitude
+                if dist < bestDist then
+                    bestDist = dist
+                    best = obj
+                end
+            end
         end
     end
+    return best
+end
+
+local function TeleportTo(enemyModel)
+    local char = game.Players.LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local root = char.HumanoidRootPart
+    local targetRoot = enemyModel:FindFirstChild("HumanoidRootPart") or enemyModel:GetPivot()
+    root.CFrame = targetRoot * CFrame.new(0, 12, 12)
 end
 
 -- ==================== AUTO CLICK ====================
@@ -82,14 +105,14 @@ Main:Toggle({
 
 -- ==================== STAR HATCHING ====================
 Main:Section({Title = "Star Hatching"})
-local starDropdown = Main:Dropdown({
+local starDrop = Main:Dropdown({
     Title = "Select Star",
     Values = GetStars(),
     SearchBarEnabled = true,
     Callback = function(v) selectedStar = v end,
 })
 
-Main:Button({Title = "Refresh Stars", Callback = function() starDropdown:Refresh(GetStars()) end})
+Main:Button({Title = "Refresh Stars", Callback = function() starDrop:Refresh(GetStars()) end})
 
 Main:Slider({
     Title = "Hatch Amount",
@@ -98,55 +121,68 @@ Main:Slider({
 })
 
 Main:Toggle({
-    Title = "Auto Hatch Selected Star",
+    Title = "Auto Hatch",
     Callback = function(v)
         autoHatching = v
         if v and selectedStar then
             task.spawn(function()
                 while autoHatching do
                     pcall(function() OpenStarRemote:InvokeServer(selectedStar, hatchAmount) end)
-                    task.wait(0.1)
+                    task.wait(0.12)
                 end
             end)
         end
     end,
 })
 
--- ==================== ENEMY TARGETING ====================
-Main:Section({Title = "Enemy Targeting"})
+-- ==================== ENEMY TARGETING (SMART LOOP) ====================
+Main:Section({Title = "Enemy Targeting - Auto TP on Death"})
 
-local enemyDropdown = Main:Dropdown({
-    Title = "Select Enemy",
-    Values = GetEnemies(),
+local enemyDrop = Main:Dropdown({
+    Title = "Select Enemy Type",
+    Values = {}, -- you can fill later or leave empty (you type the name)
     SearchBarEnabled = true,
     Callback = function(v) selectedEnemy = v end,
 })
 
-Main:Button({Title = "Refresh Enemies", Callback = function() enemyDropdown:Refresh(GetEnemies()) end})
+Main:Button({Title = "Refresh Enemy List", Callback = function()
+    -- Optional: auto-fill from folder
+    local list = {}
+    for _, v in ipairs(EnemiesFolder:GetChildren()) do
+        if v:IsA("Model") then table.insert(list, v.Name) end
+    end
+    table.sort(list)
+    enemyDrop:Refresh(list)
+end})
 
 Main:Button({
-    Title = "Teleport to Selected Enemy",
+    Title = "Teleport to Selected",
     Callback = function()
         if selectedEnemy then
-            TeleportToEnemy()
-            WindUI:Notify({Title = "Teleported", Content = selectedEnemy})
+            local target = FindNextAliveEnemy()
+            if target then TeleportTo(target) end
         end
     end,
 })
 
 Main:Toggle({
-    Title = "Auto Teleport to Selected Enemy",
+    Title = "Auto Teleport (loops on death)",
     Callback = function(v)
         autoTeleporting = v
         if v and selectedEnemy then
             task.spawn(function()
-                while autoTeleporting do
-                    TeleportToEnemy()
-                    task.wait(1.5)
+                while autoTeleporting and selectedEnemy do
+                    local target = FindNextAliveEnemy()
+                    if target then
+                        TeleportTo(target)
+                        task.wait(1)      -- TP every 1 second while alive
+                    else
+                        task.wait(2.5)    -- No enemy alive → wait longer
+                    end
                 end
             end)
         end
     end,
 })
 
-WindUI:Notify({Title = "Loaded!", Content = "Select enemy → Teleport + Auto Click = Farm", Duration = 9})
+WindUI:Notify({Title = "Loaded!", Content = "Mobile scroll + Smart Auto TP ready! Select enemy → toggle Auto Teleport", Duration = 10})
