@@ -11,22 +11,35 @@ task.wait(3)
 print("[RoDash AutoFarm] Script Execution Started...")
 
 local function safeRequire(module)
+    local err1, err2
+
     if getrenv and getrenv().require then
-        for i = 1, 5 do
+        for i = 1, 10 do
             local success, result = pcall(getrenv().require, module)
-            if success and type(result) == "table" then return result end
+            if success and result ~= nil then 
+                return result 
+            end
+            err1 = tostring(result)
             task.wait(1)
         end
     end
-    return require(module)
+    
+    -- Fallback to executor require if getrenv fails
+    local success, result = pcall(require, module)
+    if success and result ~= nil then
+        return result
+    end
+    err2 = tostring(result)
+    
+    error(string.format("Failed to require %s. getrenv err: %s | exec err: %s", module.Name, err1 or "N/A", err2 or "N/A"))
 end
 
 print("[RoDash AutoFarm] Attempting to load game modules...")
 
 local loadSuccess, loadError = pcall(function()
-    _G.ZapClient = safeRequire(ReplicatedStorage:WaitForChild("ZapClient"))
-    _G.world = safeRequire(ReplicatedStorage:WaitForChild("shared"):WaitForChild("ecs"):WaitForChild("world"))
-    _G.cts = safeRequire(ReplicatedStorage:WaitForChild("shared"):WaitForChild("jobs"):WaitForChild("rodash"):WaitForChild("cts"))
+    _G.ZapClient = safeRequire(ReplicatedStorage:WaitForChild("ZapClient", 10))
+    _G.world = safeRequire(ReplicatedStorage:WaitForChild("shared", 10):WaitForChild("ecs", 10):WaitForChild("world", 10))
+    _G.cts = safeRequire(ReplicatedStorage:WaitForChild("shared", 10):WaitForChild("jobs", 10):WaitForChild("rodash", 10):WaitForChild("cts", 10))
 end)
 
 if not loadSuccess then
