@@ -2,12 +2,21 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+-- Wait an extra moment to ensure the game's LocalScripts have actually required the modules first
+task.wait(3)
+
 print("[RoDash AutoFarm] Script Execution Started...")
 
 local function safeRequire(module)
     if getrenv and getrenv().require then
-        local success, result = pcall(getrenv().require, module)
-        if success then return result end
+        for i = 1, 5 do
+            local success, result = pcall(getrenv().require, module)
+            if success and type(result) == "table" then return result end
+            task.wait(1)
+        end
     end
     return require(module)
 end
