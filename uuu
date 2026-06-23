@@ -10,48 +10,43 @@ task.wait(3)
 
 print("[RoDash AutoFarm] Script Execution Started...")
 
-local function safeRequire(module)
-    local err1, err2
+print("[RoDash AutoFarm] Scanning memory for ECS tables... (Bypassing require)")
 
-    if getrenv and getrenv().require then
-        for i = 1, 10 do
-            local success, result = pcall(getrenv().require, module)
-            if success and result ~= nil then 
-                return result 
-            end
-            err1 = tostring(result)
-            task.wait(1)
+local ZapClient, world, cts
+
+local function scanMemory()
+    if not getgc then return false, "Executor does not support getgc" end
+    
+    for _, v in pairs(getgc(true)) do
+        if type(v) == "table" then
+            pcall(function()
+                if rawget(v, "EcsJobAction") and rawget(v, "EcsStartAction") then
+                    ZapClient = v
+                end
+                if rawget(v, "RoDashOrderStatus") and rawget(v, "RoDashOrderSource") then
+                    cts = v
+                end
+                if rawget(v, "query") and rawget(v, "set") and rawget(v, "add") and rawget(v, "contains") then
+                    world = v
+                end
+            end)
+        end
+        if ZapClient and world and cts then
+            return true, "Found all modules!"
         end
     end
     
-    -- Fallback to executor require if getrenv fails
-    local success, result = pcall(require, module)
-    if success and result ~= nil then
-        return result
-    end
-    err2 = tostring(result)
-    
-    error(string.format("Failed to require %s. getrenv err: %s | exec err: %s", module.Name, err1 or "N/A", err2 or "N/A"))
+    return false, string.format("Missing: ZapClient(%s) world(%s) cts(%s)", tostring(ZapClient ~= nil), tostring(world ~= nil), tostring(cts ~= nil))
 end
 
-print("[RoDash AutoFarm] Attempting to load game modules...")
+local loadSuccess, loadError = scanMemory()
 
-local loadSuccess, loadError = pcall(function()
-    _G.ZapClient = safeRequire(ReplicatedStorage:WaitForChild("ZapClient", 10))
-    _G.world = safeRequire(ReplicatedStorage:WaitForChild("shared", 10):WaitForChild("ecs", 10):WaitForChild("world", 10))
-    _G.cts = safeRequire(ReplicatedStorage:WaitForChild("shared", 10):WaitForChild("jobs", 10):WaitForChild("rodash", 10):WaitForChild("cts", 10))
-end)
-
-if not loadSuccess then
-    warn("[RoDash AutoFarm] CRITICAL ERROR: Failed to load required game modules!")
+if not loadSuccess or not ZapClient or not world or not cts then
+    warn("[RoDash AutoFarm] CRITICAL ERROR: Failed to find game modules in memory!")
     warn("[RoDash AutoFarm] Error Details: " .. tostring(loadError))
-    warn("[RoDash AutoFarm] The UI will not load because the script cannot access the game's ECS framework.")
-    return -- Stop execution here so it doesn't silently break the UI later
+    warn("[RoDash AutoFarm] Your executor's require is broken, and it failed to find the tables in memory as a fallback.")
+    return
 end
-
-local ZapClient = _G.ZapClient
-local world = _G.world
-local cts = _G.cts
 
 print("[RoDash AutoFarm] Modules loaded successfully! Loading UI...")
 
