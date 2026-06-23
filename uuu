@@ -1,605 +1,163 @@
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
-
-local Window = Rayfield:CreateWindow({
-   Name = "PSXOG Reborn Hub",
-   LoadingTitle = "PSXOG Reborn",
-   LoadingSubtitle = "by Hub",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = "PSXOGHub",
-      FileName = "PSXOGConfig"
-   },
-   KeySystem = false,
-   KeySettings = {
-      Title = "Key System",
-      Subtitle = "Key System",
-      Note = "No key needed",
-      FileName = "Key",
-      SaveKey = false,
-      GrabKeyFromSite = false,
-      Key = "Hello"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "sirius",
-      RememberJoins = true
-   }
-})
-
-local FarmingTab = Window:CreateTab("Farming", 4483362458)
-local EggsTab = Window:CreateTab("Eggs", 4483362458)
-local PetsTab = Window:CreateTab("Pets", 4483362458)
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local DEBUG_PREFIX = "[PSXOG Hub]"
+print("[RoDash AutoFarm] Script Execution Started...")
 
-local function consoleInfo(...)
-    print(DEBUG_PREFIX, ...)
-end
-
-local function consoleWarn(...)
-    warn(DEBUG_PREFIX, ...)
-end
-
-local function listChildren(inst)
-    if not inst then return "<nil>" end
-    local names = {}
-    for _, child in ipairs(inst:GetChildren()) do
-        table.insert(names, child.Name .. ":" .. child.ClassName)
+local function safeRequire(module)
+    if getrenv and getrenv().require then
+        local success, result = pcall(getrenv().require, module)
+        if success then return result end
     end
-    return table.concat(names, ", ")
+    return require(module)
 end
 
-local function notifyStartupError(content)
-    consoleWarn("Startup failed:", content)
-    Rayfield:Notify({Title = "Error", Content = content, Duration = 8})
+print("[RoDash AutoFarm] Attempting to load game modules...")
+
+local loadSuccess, loadError = pcall(function()
+    _G.ZapClient = safeRequire(ReplicatedStorage:WaitForChild("ZapClient"))
+    _G.world = safeRequire(ReplicatedStorage:WaitForChild("shared"):WaitForChild("ecs"):WaitForChild("world"))
+    _G.cts = safeRequire(ReplicatedStorage:WaitForChild("shared"):WaitForChild("jobs"):WaitForChild("rodash"):WaitForChild("cts"))
+end)
+
+if not loadSuccess then
+    warn("[RoDash AutoFarm] CRITICAL ERROR: Failed to load required game modules!")
+    warn("[RoDash AutoFarm] Error Details: " .. tostring(loadError))
+    warn("[RoDash AutoFarm] The UI will not load because the script cannot access the game's ECS framework.")
+    return -- Stop execution here so it doesn't silently break the UI later
 end
 
-local function getFunctionUpvalues(fn)
-    if debug and debug.getupvalues then
-        local ok, values = pcall(debug.getupvalues, fn)
-        if ok and type(values) == "table" then
-            return values
-        end
-    end
+local ZapClient = _G.ZapClient
+local world = _G.world
+local cts = _G.cts
 
-    if debug and debug.getupvalue then
-        local values = {}
-        local index = 1
-        while true do
-            local ok, name, value = pcall(debug.getupvalue, fn, index)
-            if not ok or name == nil then
-                break
-            end
-            table.insert(values, value)
-            index = index + 1
-        end
-        return values
-    end
+print("[RoDash AutoFarm] Modules loaded successfully! Loading UI...")
 
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "RoDash AutoFarm",
+   LoadingTitle = "RoDash Interface Suite",
+   LoadingSubtitle = "AutoFarm Job",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "RoDashHub",
+      FileName = "AutoFarmConfig"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "",
+      RememberJoins = false
+   },
+   KeySystem = false
+})
+
+local Tab = Window:CreateTab("Job", 4483362458)
+local Section = Tab:CreateSection("AutoFarm Control")
+
+local autoFarmActive = false
+
+local function getActiveOrder()
+    for entityId, status in world:query(cts.RoDashOrderStatus) do
+        local order = world:get(entityId, cts.RoDashOrder)
+        return entityId, status, order
+    end
     return nil
 end
 
-local function isLikelyLibrary(value)
-    if type(value) ~= "table" then
-        return false
+local function getAvailableOrders()
+    local orders = {}
+    for entityId, order in world:query(cts.RoDashOrder):without(cts.RoDashOrderStatus) do
+        table.insert(orders, {id = order.id, data = order})
     end
-
-    if rawget(value, "Network") and rawget(value, "WorldCmds") and rawget(value, "Things") then
-        return true
-    end
-
-    return rawget(value, "Loaded") ~= nil
-        and rawget(value, "ReplicatedStorage") ~= nil
-        and rawget(value, "RunService") ~= nil
+    return orders
 end
 
-local function scanFunctionForLibrary(fn, label)
-    local upvalues = getFunctionUpvalues(fn)
-    if not upvalues then
-        return nil
-    end
+local Toggle = Tab:CreateToggle({
+   Name = "Enable AutoFarm",
+   Info = "Toggles the AutoFarm job on and off.",
+   CurrentValue = false,
+   Flag = "AutoFarmToggle",
+   Callback = function(Value)
+      autoFarmActive = Value
+      if autoFarmActive then
+         print("AutoFarm Started")
+         
+         -- Ensure player is on RoDash team
+         if LocalPlayer.Team and LocalPlayer.Team.Name ~= "RoDash" then
+             local TeamsMain = ReplicatedStorage:FindFirstChild("TeamsMain", true)
+             if TeamsMain then
+                 TeamsMain:InvokeServer("Join", "RoDash")
+                 task.wait(1)
+             end
+         end
 
-    for _, upvalue in ipairs(upvalues) do
-        if isLikelyLibrary(upvalue) then
-            consoleInfo("Found Library through function upvalue:", label)
-            return upvalue
-        end
-    end
+         task.spawn(function()
+            while autoFarmActive do
+               task.wait(1)
+               
+               local entityId, status, order = getActiveOrder()
+               
+               if status then
+                   local step = status.step
+                   local orderId = order.id
+                   
+                   local char = LocalPlayer.Character
+                   local root = char and char:FindFirstChild("HumanoidRootPart")
+                   
+                   if step == "going_to_vendor" or step == "picking_up_bag" then
+                       if root and order.storePosition then
+                           root.CFrame = CFrame.new(order.storePosition)
+                       end
+                       task.wait(0.5)
+                       
+                       if step == "picking_up_bag" then
+                           ZapClient.EcsJobAction.Call("pickupBag", { orderId = orderId })
+                       end
+                       
+                   elseif step == "going_to_customer" or step == "bag_dropoff" then
+                       if root and order.customerPosition then
+                           root.CFrame = CFrame.new(order.customerPosition)
+                       end
+                       task.wait(0.5)
+                       
+                       ZapClient.EcsJobAction.Call("deliver", { orderId = orderId })
+                       
+                   elseif step == "reward_claimable" then
+                       ZapClient.EcsJobAction.Call("collectReward", { orderId = orderId })
 
-    return nil
-end
-
-local function scanScriptEnvironmentsForLibrary()
-    if not getsenv then
-        consoleWarn("getsenv is unavailable in this executor.")
-        return nil
-    end
-
-    local roots = {}
-    if LocalPlayer then
-        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if playerScripts then table.insert(roots, playerScripts) end
-        if playerGui then table.insert(roots, playerGui) end
-    end
-
-    local scriptsScanned = 0
-    local functionsScanned = 0
-
-    for _, root in ipairs(roots) do
-        for _, inst in ipairs(root:GetDescendants()) do
-            if inst:IsA("LocalScript") then
-                scriptsScanned = scriptsScanned + 1
-                local ok, env = pcall(getsenv, inst)
-                if ok and type(env) == "table" then
-                    if isLikelyLibrary(env.Library) then
-                        consoleInfo("Found Library through script environment global:", inst:GetFullName())
-                        return env.Library
-                    end
-
-                    for name, value in pairs(env) do
-                        if type(value) == "function" then
-                            functionsScanned = functionsScanned + 1
-                            local library = scanFunctionForLibrary(value, inst:GetFullName() .. "." .. tostring(name))
-                            if library then
-                                return library
-                            end
-                        elseif isLikelyLibrary(value) then
-                            consoleInfo("Found Library through script environment value:", inst:GetFullName() .. "." .. tostring(name))
-                            return value
-                        end
-                    end
-                end
+                   elseif step == "acquiring_items" then
+                       -- Grocery orders not supported by this autofarm yet, cancel it to avoid getting stuck
+                       ZapClient.EcsJobAction.Call("cancelOrder", { orderId = orderId })
+                       task.wait(1)
+                   end
+               else
+                   local available = getAvailableOrders()
+                   local bestOrder = nil
+                   
+                   -- Prefer restaurant orders since groceries might require picking items
+                   for _, ord in ipairs(available) do
+                       if ord.data.isRestaurantPickup then
+                           bestOrder = ord
+                           break
+                       end
+                   end
+                   
+                   -- Fallback to any order
+                   if not bestOrder and #available > 0 then
+                       bestOrder = available[1]
+                   end
+                   
+                   if bestOrder then
+                       ZapClient.EcsJobAction.Call("startOrder", { orderId = bestOrder.id })
+                   end
+               end
             end
-        end
-    end
-
-    consoleWarn("getsenv fallback found no Library. Scripts scanned:", scriptsScanned, "Functions scanned:", functionsScanned)
-    return nil
-end
-
-local function getLibrary()
-    consoleInfo("Starting Library lookup. PlaceId:", game.PlaceId, "IsLoaded:", game:IsLoaded())
-
-    local replicatedStorage = game:GetService("ReplicatedStorage")
-    local framework = replicatedStorage:WaitForChild("Framework", 20)
-    if not framework then
-        consoleWarn("ReplicatedStorage children:", listChildren(replicatedStorage))
-        return nil, "ReplicatedStorage.Framework was not found."
-    end
-    consoleInfo("Found Framework:", framework:GetFullName())
-
-    local libraryModule = framework:WaitForChild("Library", 20)
-    if not libraryModule then
-        consoleWarn("Framework children:", listChildren(framework))
-        return nil, "ReplicatedStorage.Framework.Library was not found."
-    end
-    consoleInfo("Found Library instance:", libraryModule:GetFullName(), libraryModule.ClassName)
-
-    if libraryModule then
-        local ok, result = pcall(require, libraryModule)
-        if ok and type(result) == "table" then
-            consoleInfo("Required Framework.Library successfully. Loaded:", result.Loaded, "Network:", result.Network ~= nil, "WorldCmds:", result.WorldCmds ~= nil)
-            return result
-        end
-        if not ok then
-            consoleWarn("Framework.Library require failed:", result)
-        else
-            consoleWarn("Framework.Library returned unexpected value:", typeof(result), result)
-        end
-    end
-
-    local libraryFromEnvs = scanScriptEnvironmentsForLibrary()
-    if libraryFromEnvs then
-        return libraryFromEnvs
-    end
-
-    if getgc then
-        local scannedFunctions = 0
-        local scannedUpvalues = 0
-        for _, v in pairs(getgc()) do
-            if type(v) == "function" then
-                scannedFunctions = scannedFunctions + 1
-                local ups = getFunctionUpvalues(v) or {}
-                for _, up in pairs(ups) do
-                    scannedUpvalues = scannedUpvalues + 1
-                    if isLikelyLibrary(up) then
-                        consoleInfo("Found Library through getgc fallback. Functions scanned:", scannedFunctions, "Upvalues scanned:", scannedUpvalues)
-                        return up
-                    end
-                end
-            end
-        end
-        consoleWarn("getgc fallback found no Library. Functions scanned:", scannedFunctions, "Upvalues scanned:", scannedUpvalues)
-    else
-        consoleWarn("getgc is unavailable in this executor.")
-    end
-
-    if getloadedmodules then
-        local modulesScanned = 0
-        for _, mod in ipairs(getloadedmodules()) do
-            modulesScanned = modulesScanned + 1
-            if mod.Name == "Library" then
-                local ok, result = pcall(require, mod)
-                if ok and type(result) == "table" and result.Network then
-                    consoleInfo("Found Library through getloadedmodules fallback. Modules scanned:", modulesScanned)
-                    return result
-                end
-                consoleWarn("getloadedmodules Library require failed or returned incomplete table:", mod:GetFullName(), ok, result)
-            end
-        end
-        consoleWarn("getloadedmodules fallback found no usable Library. Modules scanned:", modulesScanned)
-    else
-        consoleWarn("getloadedmodules is unavailable in this executor.")
-    end
-
-    return nil, "Framework.Library exists, but could not be required or found in memory."
-end
-
-local Library, libraryError = getLibrary()
-if not Library then
-    notifyStartupError(libraryError or "Could not extract game Library. Wait for full load and retry.")
-    return
-end
-
-local startedWaitingForLibrary = os.clock()
-while not Library.Loaded do
-    if os.clock() - startedWaitingForLibrary > 60 then
-        notifyStartupError("Game Library was found but never finished loading. Join fully into PSXOG Reborn, then run the hub again.")
-        return
-    end
-    task.wait()
-end
-consoleInfo("Library loaded. Network:", Library.Network ~= nil, "WorldCmds:", Library.WorldCmds ~= nil, "Things:", Library.Things ~= nil)
-
-if not Library.Network or not Library.WorldCmds or not Library.Things then
-    notifyStartupError("Game Library loaded without expected PSXOG modules.")
-    return
-end
-
-local breakRange = 150
-
-local function getOptionText(option)
-    if type(option) == "table" then return option[1] or tostring(option) end
-    return tostring(option)
-end
-
-local function normalizeToggleValue(value)
-    if type(value) == "boolean" then return value end
-    if type(value) == "table" then return value[1] == true or value[1] == "true" end
-    return value == true or value == "true"
-end
-
-local loopTokens = {}
-local function startLoop(name, interval, callback)
-    local token = {}
-    loopTokens[name] = token
-    task.spawn(function()
-        while loopTokens[name] == token do
-            local ok, err = pcall(callback)
-            if not ok then warn("[" .. name .. "]", err) end
-            task.wait(interval or 0)
-        end
-    end)
-end
-local function stopLoop(name)
-    loopTokens[name] = nil
-end
-
-local function getAttr(inst, name)
-    if not inst then return nil end
-    local attr = inst:FindFirstChild(name .. "_Attr")
-    if attr then return attr.Value end
-    local ok, val = pcall(function() return inst:GetAttribute(name) end)
-    return ok and val or nil
-end
-
--- Farming Section
-local FarmSection = FarmingTab:CreateSection("Auto Break", false)
-
-FarmingTab:CreateToggle({
-    Name = "Auto Break",
-    Info = "Sends pets to break nearby coins/crates/diamonds.",
-    CurrentValue = false,
-    Flag = "AutoBreak",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            startLoop("AutoBreak", 0.25, function()
-                if not Library.WorldCmds.HasLoaded() then return end
-                local coins = Library.Things:FindFirstChild("Coins")
-                if not coins then return end
-                local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if not root then return end
-                local myPos = root.Position
-                local processed = 0
-                for _, coin in ipairs(coins:GetChildren()) do
-                    processed = processed + 1
-                    if processed % 25 == 0 then task.wait() end
-                    local pos = coin:FindFirstChild("POS")
-                    if pos and (pos.Position - myPos).Magnitude <= breakRange then
-                        local petsFolder = coin:FindFirstChild("Pets")
-                        local hasMine = false
-                        if petsFolder then
-                            for _, p in ipairs(petsFolder:GetChildren()) do
-                                if getAttr(p, "Owner") == LocalPlayer.Name then
-                                    hasMine = true
-                                    break
-                                end
-                            end
-                        end
-                        if not hasMine then
-                            Library.Signal.Fire("Select Coin", coin)
-                        end
-                    end
-                end
-            end)
-        else
-            stopLoop("AutoBreak")
-        end
-    end,
+         end)
+      else
+         print("AutoFarm Stopped")
+      end
+   end,
 })
 
-FarmingTab:CreateSlider({
-    Name = "Break Range",
-    Info = "Radius to search for breakables.",
-    Range = {20, 400},
-    Increment = 10,
-    Suffix = " studs",
-    CurrentValue = 150,
-    Flag = "BreakRange",
-    Callback = function(Value)
-        breakRange = Value
-    end,
-})
-
--- Auto Collect Section
-local CollectSection = FarmingTab:CreateSection("Auto Collect", false)
-
-FarmingTab:CreateToggle({
-    Name = "Auto Collect",
-    Info = "Instantly grabs lootbags and orbs.",
-    CurrentValue = false,
-    Flag = "AutoCollect",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            startLoop("AutoCollect", 0.15, function()
-                if not Library.WorldCmds.HasLoaded() then return end
-                local orbsFolder = Library.Things:FindFirstChild("Orbs")
-                if orbsFolder then
-                    local ids = {}
-                    local children = orbsFolder:GetChildren()
-                    for i = 1, #children do
-                        table.insert(ids, children[i].Name)
-                        if #ids >= 40 then
-                            pcall(function() Library.Network.Fire("Claim Orbs", table.clone(ids)) end)
-                            ids = {}
-                        end
-                    end
-                    if #ids > 0 then
-                        pcall(function() Library.Network.Fire("Claim Orbs", ids) end)
-                    end
-                end
-
-                local lootFolder = Library.Things:FindFirstChild("Lootbags")
-                if lootFolder then
-                    local processed = 0
-                    for _, bag in ipairs(lootFolder:GetChildren()) do
-                        processed = processed + 1
-                        if processed % 30 == 0 then task.wait() end
-                        local id = getAttr(bag, "ID")
-                        local collected = getAttr(bag, "Collected")
-                        local ready = getAttr(bag, "ReadyForCollection")
-                        if id and not collected and ready then
-                            pcall(function() Library.Network.Fire("Collect Lootbag", id, bag.CFrame.p) end)
-                        end
-                    end
-                end
-            end)
-        else
-            stopLoop("AutoCollect")
-        end
-    end,
-})
-
--- Eggs Section
-local EggSection = EggsTab:CreateSection("Auto Open Eggs", false)
-
-local eggOptions = {}
-local eggIdMap = {}
-
-local function refreshEggList()
-    table.clear(eggOptions)
-    table.clear(eggIdMap)
-    local eggs = Library.WorldCmds.GetAllEggs()
-    for _, eggInst in ipairs(eggs) do
-        local id = getAttr(eggInst, "ID")
-        if id then
-            local dir = Library.Directory.Eggs[id]
-            local label = dir and (dir.displayName or id) or id
-            table.insert(eggOptions, label)
-            eggIdMap[label] = id
-        end
-    end
-end
-
-refreshEggList()
-
-local selectedEggLabel = eggOptions[1] or ""
-local selectedEggId = eggIdMap[selectedEggLabel] or ""
-
-EggsTab:CreateDropdown({
-    Name = "Select Egg",
-    Options = eggOptions,
-    CurrentOption = selectedEggLabel,
-    MultiSelection = false,
-    Flag = "SelectedEgg",
-    Callback = function(Option)
-        local text = getOptionText(Option)
-        selectedEggLabel = text
-        selectedEggId = eggIdMap[text] or ""
-    end,
-})
-
-EggsTab:CreateButton({
-    Name = "Refresh Egg List",
-    Interact = "Refresh",
-    Callback = function()
-        refreshEggList()
-        Rayfield:Notify({
-            Title = "Eggs Refreshed",
-            Content = "Found " .. #eggOptions .. " egg(s) in current world.",
-            Duration = 3,
-        })
-    end,
-})
-
-EggsTab:CreateToggle({
-    Name = "Auto Open Eggs",
-    Info = "Fast auto open bypass (no gamepass needed).",
-    CurrentValue = false,
-    Flag = "AutoOpenEggs",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            startLoop("AutoOpenEggs", 0.12, function()
-                if not Library.WorldCmds.HasLoaded() then return end
-                if selectedEggId == "" then return end
-                local save = Library.Save.Get()
-                if not save then return end
-                if save.MaxSlots <= #save.Pets then return end
-                pcall(function()
-                    Library.Network.Invoke("Buy Egg", selectedEggId, false)
-                end)
-            end)
-        else
-            stopLoop("AutoOpenEggs")
-        end
-    end,
-})
-
--- Pets Section
-local GoldSection = PetsTab:CreateSection("Auto Make Gold", false)
-local RainbowSection = PetsTab:CreateSection("Auto Make Rainbow", false)
-
-PetsTab:CreateToggle({
-    SectionParent = GoldSection,
-    Name = "Auto Make Gold",
-    Info = "Converts eligible normal pets to Golden.",
-    CurrentValue = false,
-    Flag = "AutoMakeGold",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            startLoop("AutoMakeGold", 1.5, function()
-                if not Library.WorldCmds.HasLoaded() then return end
-                if Library.Variables.UsingMachine then return end
-                local save = Library.Save.Get()
-                if not save then return end
-                local pets = save.Pets
-                if not pets then return end
-                local groups = {}
-                for _, pet in ipairs(pets) do
-                    local dir = Library.Directory.Pets[tostring(pet.id)]
-                    if dir and not dir.isPremium and not pet.g and not pet.r and not pet.dm and dir.rarity ~= "Exclusive" then
-                        groups[pet.id] = groups[pet.id] or {}
-                        table.insert(groups[pet.id], tostring(pet.uid))
-                    end
-                end
-                local ok, machineInfo = pcall(function() return Library.Network.Invoke("Get Golden Machine Info") end)
-                local maxBatch = (ok and type(machineInfo) == "table") and #machineInfo or 3
-                for petId, uids in pairs(groups) do
-                    if loopTokens["AutoMakeGold"] == nil then break end
-                    if #uids >= 2 then
-                        local batch = {}
-                        for i = 1, math.min(#uids, maxBatch) do
-                            table.insert(batch, uids[i])
-                        end
-                        pcall(function() Library.Network.Invoke("Use Golden Machine", batch) end)
-                        task.wait(0.5)
-                    end
-                end
-            end)
-        else
-            stopLoop("AutoMakeGold")
-        end
-    end,
-})
-
-PetsTab:CreateToggle({
-    SectionParent = RainbowSection,
-    Name = "Auto Make Rainbow",
-    Info = "Converts eligible Golden pets to Rainbow.",
-    CurrentValue = false,
-    Flag = "AutoMakeRainbow",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            startLoop("AutoMakeRainbow", 1.5, function()
-                if not Library.WorldCmds.HasLoaded() then return end
-                if Library.Variables.UsingMachine then return end
-                local save = Library.Save.Get()
-                if not save then return end
-                local pets = save.Pets
-                if not pets then return end
-                local groups = {}
-                for _, pet in ipairs(pets) do
-                    local dir = Library.Directory.Pets[tostring(pet.id)]
-                    if dir and not dir.isPremium and pet.g and not pet.r and not pet.dm and dir.rarity ~= "Exclusive" then
-                        groups[pet.id] = groups[pet.id] or {}
-                        table.insert(groups[pet.id], tostring(pet.uid))
-                    end
-                end
-                local ok, machineInfo = pcall(function() return Library.Network.Invoke("Get Rainbow Machine Info") end)
-                local maxBatch = (ok and type(machineInfo) == "table") and #machineInfo or 3
-                for petId, uids in pairs(groups) do
-                    if loopTokens["AutoMakeRainbow"] == nil then break end
-                    if #uids >= 2 then
-                        local batch = {}
-                        for i = 1, math.min(#uids, maxBatch) do
-                            table.insert(batch, uids[i])
-                        end
-                        pcall(function() Library.Network.Invoke("Use Rainbow Machine", batch) end)
-                        task.wait(0.5)
-                    end
-                end
-            end)
-        else
-            stopLoop("AutoMakeRainbow")
-        end
-    end,
-})
-
--- Settings Section
-local SettingsSection = SettingsTab:CreateSection("Misc", false)
-
-SettingsTab:CreateToggle({
-    Name = "Anti AFK",
-    Info = "Prevents idle kicks by simulating activity.",
-    CurrentValue = false,
-    Flag = "AntiAfk",
-    Callback = function(Value)
-        local on = normalizeToggleValue(Value)
-        if on then
-            if not _G.PSXOG_AntiAfkConnected then
-                _G.PSXOG_AntiAfkConnected = true
-                local VirtualUser = game:GetService("VirtualUser")
-                LocalPlayer.Idled:Connect(function()
-                    VirtualUser:CaptureController()
-                    VirtualUser:ClickButton2(Vector2.new())
-                end)
-            end
-        end
-    end,
-})
-
-Rayfield:Notify({
-    Title = "PSXOG Hub Loaded",
-    Content = "Happy farming!",
-    Duration = 4,
-})
+Rayfield:LoadConfiguration()
