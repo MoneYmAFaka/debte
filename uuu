@@ -1,180 +1,1288 @@
+-- =====================================================
+-- STATIC_HOUSE / AutoBattle.lua  (ROOT LEVEL)
+-- Smart Auto Battler - placed directly in STATIC_HOUSE as requested
+--
+-- Features:
+-- - Full elixir awareness (current + prediction)
+-- - Counters enemy units intelligently
+-- - Knows when to attack (elixir + push timing + pressure)
+-- - Lane awareness (Left / Mid / Right)
+-- - Smart placement (supports your units, reacts to threats)
+-- - Role-based card decisions (wincon, cycle, spell value, etc.)
+-- =====================================================
+
+local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Give the game as much time as possible to finish its own initialization.
+-- This helps avoid "assertion failed" in the game's internal 'init' script.
+-- Extra safety wait at the very top for executor injection timing
+task.wait(2)
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
--- Wait an extra moment to ensure the game's LocalScripts have actually required the modules first
-task.wait(3)
+task.wait(1)
 
-print("[RoDash AutoFarm] Script Execution Started...")
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
-print("[RoDash AutoFarm] Scanning memory for ECS tables... (Bypassing require)")
+-- We defer ALL game module requires until the first time they are actually needed.
+-- This avoids triggering the game's internal 'init' assertions (line 836) that happen
+-- when scripts run too early during executor injection.
 
-local ZapClient, world, cts
+local _modulesLoaded = false
+local EnergyShared, CardInfo, TileHandler, SharedFunctions, PlaceRemote
 
-local function scanMemory()
-    if not getgc then return false, "Executor does not support getgc" end
-    
-    for _, v in pairs(getgc(true)) do
-        if type(v) == "table" then
-            pcall(function()
-                if rawget(v, "EcsJobAction") and rawget(v, "EcsStartAction") then
-                    ZapClient = v
+local function ensureModulesLoaded()
+	if _modulesLoaded then return true end
+
+	local success, err = pcall(function()
+		local mods = ReplicatedStorage:WaitForChild("Modules", 20)
+		local shared = ReplicatedStorage:WaitForChild("Shared", 20)
+
+		EnergyShared   = require(mods:WaitForChild("EnergyShared", 10))
+		CardInfo       = require(mods:WaitForChild("CardInfo", 10))
+		TileHandler    = require(mods:WaitForChild("TileHandler", 10))
+		SharedFunctions = require(shared:WaitForChild("SharedFunctions", 10))
+		PlaceRemote    = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("Place", 5)
+	end)
+
+	if not success then
+		warn("[AutoBattle] Failed to load game modules:", err)
+		return false
+	end
+
+	_modulesLoaded = true
+	return true
+end
+
+-- Helper for places that used the old direct PlaceRemote
+local function getPlaceRemote()
+	ensureModulesLoaded()
+	return PlaceRemote
+end
+
+-- =====================================================
+-- CONFIG
+-- =====================================================
+local AutoBattle = {
+    Enabled = false,
+    Debug = false,
+}
+
+local CONFIG = {
+    PLACE_COOLDOWN = 0.22,           -- minimum time between any placement
+    BIG_PLAY_COOLDOWN = 7,           -- avoid spamming expensive cards
+    MIN_ELIXIR_BUFFER = 1.2,         -- keep some buffer for reactions
+    SPELL_VALUE_MIN = 2,             -- minimum enemies for spell value
+}
+
+local DEFAULT_DECK = {
+    "Army", "Aliens", "FireFist", "ThunderGod", "ArmoredGiant",
+    "Marines", "EliteMarines", "Fireball", "Barracks", "Cannon"
+}
+
+-- Arena 1 (Starter Village) safe preset deck
+-- Only uses cards unlocked in Arena 1 according to ArenaData: Arrows, CursedFlies, TreeNinjas, SunKing, Fireball, KidFighter, Sharpshooter ("Sharp Shooter"), ArmoredGiant
+local ARENA1_PRESET = {
+	"ArmoredGiant",   -- Tank / win condition
+	"SunKing",        -- Strong single target
+	"Sharpshooter",   -- Ranged DPS (Sharp Shooter)
+	"KidFighter",     -- Fighter unit
+	"TreeNinjas",     -- Swarm / pressure
+	"CursedFlies",    -- Flying swarm
+	"Fireball",       -- Spell for value / towers
+	"Arrows",         -- Spell for swarms / cheap cycle
+	"CursedFlies",    -- pad to 10 cards (game expects ~10 like default)
+	"Arrows"          -- pad to 10
+}
+
+-- Presets for other arenas (all padded/truncated to 10 cards to match game's default deck size)
+local ARENA_PRESETS = {
+	["Arena 1 (Starter Village)"] = ARENA1_PRESET,
+	["Arena 2 (Sky Island)"] = {
+		"ArmoredGiant", "SunKing", "Sharpshooter", "KidFighter", "TreeNinjas", "CursedFlies", "Fireball", "Arrows", "Aliens", "Aliens"
+	},
+	["Arena 3 (Wisteria Forest)"] = {
+		"ArmoredGiant", "SunKing", "Sharpshooter", "KidFighter", "TreeNinjas", "CursedFlies", "Fireball", "Arrows", "Aliens", "Boarzerker"
+	},
+	["Arena 4 (Ice Cave)"] = {
+		"ArmoredGiant", "SunKing", "Sharpshooter", "KidFighter", "TreeNinjas", "CursedFlies", "Fireball", "Arrows", "Aliens", "Marines"
+	},
+	["Arena 5 (Shibuya)"] = {
+		"ArmoredGiant", "SunKing", "Sharpshooter", "KidFighter", "TreeNinjas", "CursedFlies", "Fireball", "Arrows", "Marines", "FireFist"
+	},
+	-- Higher arenas - select a strong 10-card combination
+	["Arena 6+ (Higher)"] = {
+		"ArmoredGiant", "SunKing", "FireFist", "ThunderGod", "Marines", "EliteMarines", "Fireball", "Barracks", "Cannon", "Aliens"
+	}
+}
+
+-- Card role classification for smart decisions
+local CARD_ROLES = {
+    -- Win conditions / heavy
+    ArmoredGiant = "WINCON",
+    EliteMarines = "WINCON",
+    SunKing = "WINCON",
+
+    -- Strong single units
+    FireFist = "HEAVY",
+    ThunderGod = "HEAVY",
+    Boarzerker = "HEAVY",
+
+    -- Swarms / cycle
+    Army = "SWARM",
+    Aliens = "SWARM",
+    SpitterAliens = "SWARM",
+    CursedFlies = "SWARM",
+
+    -- Medium ground
+    Marines = "MEDIUM",
+    Sharpshooter = "RANGED",
+    TreeNinjas = "MEDIUM",
+    KidFighter = "MEDIUM",
+
+    -- Buildings
+    Barracks = "BUILDING",
+    Cannon = "BUILDING",
+    AlienOutpost = "BUILDING",
+
+    -- Spells (value plays)
+    Fireball = "SPELL",
+    Arrows = "SPELL",
+    Zap = "SPELL",
+}
+
+local COUNTERS = {
+    ArmoredGiant = {"EliteMarines", "FireFist", "Cannon", "ThunderGod"},
+    EliteMarines = {"FireFist", "ThunderGod", "SpitterAliens"},
+    Marines = {"Army", "Aliens", "SpitterAliens"},
+    FireFist = {"ThunderGod", "Sharpshooter"},
+    ThunderGod = {"Sharpshooter", "Aliens", "Army"},
+    SunKing = {"EliteMarines", "FireFist", "Cannon"},
+}
+
+-- =====================================================
+-- INTERNAL STATE
+-- =====================================================
+local state = {
+    running = false,
+    deck = table.clone(DEFAULT_DECK),
+    lastPlaceTime = 0,
+    lastBigPlayTime = 0,
+    connection = nil,
+    currentStrategy = "cycle", -- cycle | defend | counterpush | push
+    ui = nil, -- will hold the gui reference
+
+    -- Extra info for UI
+    lastCardPlaced = nil,
+    placements = 0,
+    enemyCount = 0,
+    pressure = 0,
+}
+
+-- =====================================================
+-- UTILITY FUNCTIONS
+-- =====================================================
+
+local function log(...)
+    if AutoBattle.Debug then
+        print("[AutoBattle]", ...)
+    end
+end
+
+local function IsInBattle()
+    local side = LocalPlayer:GetAttribute("Side")
+    if not side then return false end
+    if not EnergyShared or not EnergyShared.GetCurrent then return false end
+    local elixir = EnergyShared.GetCurrent()
+    return elixir ~= nil and elixir > 0.5
+end
+
+local function GetSide()
+    local attr = LocalPlayer:GetAttribute("Side")
+    if attr then
+        return "Side" .. attr
+    end
+    local ok, s = pcall(function()
+        return SharedFunctions:GetPlayerSide(LocalPlayer)
+    end)
+    return (ok and s) or "SideA"
+end
+
+local function GetEnemySide()
+    return GetSide() == "SideA" and "SideB" or "SideA"
+end
+
+local function GetElixir()
+    if not ensureModulesLoaded() then return 5 end
+    return (EnergyShared and EnergyShared.GetCurrent and EnergyShared.GetCurrent()) or 5
+end
+
+-- Predict future elixir
+local function GetElixirIn(seconds)
+    if not ensureModulesLoaded() then return 5 end
+    local current = GetElixir()
+    local rate = (EnergyShared and EnergyShared.GetRate and EnergyShared.GetRate()) or 1
+    local perSec = 0.35714285714285715 * rate   -- base from EnergyShared.Config
+    return math.clamp(current + perSec * seconds, 0, 10)
+end
+
+local function CanAfford(name)
+    if not ensureModulesLoaded() then return false end
+    local info = CardInfo[name]
+    if not info then return false end
+    return GetElixir() >= info.EnergyCost
+end
+
+local function Spend(name)
+    local info = CardInfo[name]
+    if info and EnergyShared.Spend then
+        return EnergyShared.Spend(info.EnergyCost)
+    end
+    return true
+end
+
+local function GetCardRole(name)
+    if not ensureModulesLoaded() then return "MEDIUM" end
+    return CARD_ROLES[name] or "MEDIUM"
+end
+
+-- =====================================================
+-- ENEMY + BATTLEFIELD ANALYSIS (SMART LOGIC)
+-- =====================================================
+
+local function GetUnits(isEnemy)
+    local units = {}
+    local reg = workspace:FindFirstChild("NpcRegistryCamera")
+    if not reg then return units end
+
+    local myId = LocalPlayer.UserId
+    local playerSide = GetSide()
+    local enemySide = GetEnemySide()
+
+    for _, child in ipairs(reg:GetChildren()) do
+        local models = {}
+        if child:IsA("Folder") then
+            for _, m in ipairs(child:GetChildren()) do table.insert(models, m) end
+        elseif child:IsA("Model") and child.PrimaryPart then
+            table.insert(models, child)
+        end
+
+        for _, m in ipairs(models) do
+            if m.PrimaryPart then
+                local owner = m:GetAttribute("OwnerUserId")
+                local sideTag = m:HasTag("SideA") and "SideA" or m:HasTag("SideB") and "SideB" or nil
+
+                local belongsToEnemy = false
+                if owner ~= nil then
+                    belongsToEnemy = (owner ~= myId)
+                else
+                    belongsToEnemy = (sideTag == enemySide)
                 end
-                if rawget(v, "RoDashOrderStatus") and rawget(v, "RoDashOrderSource") then
-                    cts = v
+
+                if (isEnemy and belongsToEnemy) or (not isEnemy and not belongsToEnemy) then
+                    local cardName = (m.Name:match("^([%w]+)")) or m.Name
+                    table.insert(units, {
+                        model = m,
+                        pos = m.PrimaryPart.Position,
+                        name = cardName,
+                        x = m.PrimaryPart.Position.X,
+                        z = m.PrimaryPart.Position.Z,
+                    })
                 end
-                if rawget(v, "query") and rawget(v, "set") and rawget(v, "add") and rawget(v, "contains") then
-                    world = v
+            end
+        end
+    end
+    return units
+end
+
+-- Divide into lanes using X coordinate (approximate)
+local function GetLane(x)
+    if x < -18 then return "LEFT" end
+    if x > 18 then return "RIGHT" end
+    return "MID"
+end
+
+local function GroupByLane(units)
+    local lanes = { LEFT = {}, MID = {}, RIGHT = {} }
+    for _, u in ipairs(units) do
+        local lane = GetLane(u.x)
+        table.insert(lanes[lane], u)
+    end
+    return lanes
+end
+
+-- Calculate pressure: how dangerous enemies are on our side of the map
+local function CalculatePressure(enemyUnits)
+    local side = GetSide()
+    local myHalfSign = (side == "SideA") and -1 or 1
+    local pressure = 0
+    local lanePressure = { LEFT = 0, MID = 0, RIGHT = 0 }
+
+    for _, u in ipairs(enemyUnits) do
+        local lane = GetLane(u.x)
+        -- If enemy is on our half of the arena (Z direction)
+        if (side == "SideA" and u.z < 10) or (side == "SideB" and u.z > -10) then
+            local weight = 1
+            local role = GetCardRole(u.name)
+            if role == "WINCON" or role == "HEAVY" then weight = 2.5 end
+            if role == "SWARM" then weight = 1.3 end
+
+            pressure += weight
+            lanePressure[lane] += weight
+        end
+    end
+
+    return pressure, lanePressure
+end
+
+-- Get approximate frontline for friendly units (farthest toward enemy)
+local function GetFriendlyFrontline(friendlyUnits, side)
+    local bestZ = (side == "SideA") and -999 or 999
+    local pos = nil
+
+    for _, u in ipairs(friendlyUnits) do
+        if (side == "SideA" and u.z > bestZ) or (side == "SideB" and u.z < bestZ) then
+            bestZ = u.z
+            pos = u.pos
+        end
+    end
+    return pos
+end
+
+-- Find best tile for a card given strategy
+local function ChooseSmartTile(cardName, isDefensive, friendlyFront)
+    local side = GetSide()
+    local tiles = TileHandler:GetValidTiles(side)
+    if #tiles == 0 then return nil end
+
+    local info = CardInfo[cardName] or {}
+    local role = GetCardRole(cardName)
+    local isSpell = role == "SPELL"
+    local isBuilding = role == "BUILDING"
+
+    local pushDir = (side == "SideA") and 1 or -1   -- direction toward enemy
+    local bestScore = math.huge
+    local bestTile = nil
+
+    for _, tile in ipairs(tiles) do
+        local p = tile.Position
+        local score = math.abs(p.X) * 0.7   -- prefer center-ish
+
+        if friendlyFront then
+            -- Support your troops: place slightly in front of frontline
+            local frontZ = friendlyFront.Z
+            local distToFront = math.abs(p.Z - frontZ)
+            if isDefensive then
+                score += distToFront * 0.4
+            else
+                score += distToFront * 0.9   -- still try to stay near action
+                score -= (p.Z * pushDir) * 0.6
+            end
+        else
+            if isDefensive then
+                score += (p.Z * pushDir) * -0.9   -- stay back
+            else
+                score -= (p.Z * pushDir) * 1.2   -- push forward
+            end
+        end
+
+        if isSpell then
+            score -= (p.Z * pushDir) * 0.5
+        elseif isBuilding then
+            score += isDefensive and 6 or 22   -- towers love defensive positions
+        end
+
+        -- Random jitter to prevent stacking
+        score += math.random() * 5.5
+
+        if score < bestScore then
+            bestScore = score
+            bestTile = tile
+        end
+    end
+
+    return bestTile
+end
+
+-- =====================================================
+-- SMART CARD SELECTION
+-- =====================================================
+
+local function GetAffordableCards()
+    local list = {}
+    for _, name in ipairs(state.deck) do
+        if CanAfford(name) then
+            table.insert(list, name)
+        end
+    end
+    return list
+end
+
+local function PickSmartCard(enemyUnits, pressure, lanePressure, elixir)
+    local affordable = GetAffordableCards()
+    if #affordable == 0 then return nil end
+
+    -- 1. Hard counters first (very high priority)
+    for _, e in ipairs(enemyUnits) do
+        local counters = COUNTERS[e.name]
+        if counters then
+            for _, c in ipairs(counters) do
+                for _, aff in ipairs(affordable) do
+                    if aff == c then
+                        log("Countering", e.name, "with", c)
+                        return c
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Spell value - only if cluster detected
+    local clustered = false
+    for _, lane in pairs(lanePressure) do
+        if lane >= CONFIG.SPELL_VALUE_MIN then clustered = true end
+    end
+
+    if clustered then
+        for _, aff in ipairs(affordable) do
+            if GetCardRole(aff) == "SPELL" and (aff == "Fireball" or aff == "Arrows") then
+                return aff
+            end
+        end
+    end
+
+    -- 3. Decide push vs defend based on elixir and pressure
+    local future = GetElixirIn(3)
+    local wantsPush = (elixir >= 6.8 or future >= 8) and pressure < 3.5
+
+    if wantsPush then
+        -- Try win conditions / heavy first
+        local pushOrder = {"ArmoredGiant", "EliteMarines", "ThunderGod", "FireFist", "SunKing", "Barracks"}
+        for _, want in ipairs(pushOrder) do
+            for _, aff in ipairs(affordable) do
+                if aff == want then
+                    state.currentStrategy = "push"
+                    state.lastBigPlayTime = os.clock()
+                    return aff
+                end
+            end
+        end
+    end
+
+    if pressure > 3.2 then
+        state.currentStrategy = "defend"
+        -- Prefer cheap cycle + swarm when under pressure
+        -- BUT also consider placing defensive towers/buildings
+        table.sort(affordable, function(a, b)
+            return (CardInfo[a] and CardInfo[a].EnergyCost or 99) < (CardInfo[b] and CardInfo[b].EnergyCost or 99)
+        end)
+        for _, aff in ipairs(affordable) do
+            local r = GetCardRole(aff)
+            if r == "BUILDING" then
+                return aff -- towers are excellent for defense
+            end
+            if r == "SWARM" or r == "MEDIUM" then
+                return aff
+            end
+        end
+    end
+
+    -- Default cycle: play cheapest first
+    state.currentStrategy = "cycle"
+    table.sort(affordable, function(a, b)
+        return (CardInfo[a] and CardInfo[a].EnergyCost or 99) < (CardInfo[b] and CardInfo[b].EnergyCost or 99)
+    end)
+    return affordable[1]
+end
+
+-- =====================================================
+-- PLACEMENT
+-- =====================================================
+
+local function PerformPlace(cardName)
+    if not ensureModulesLoaded() then return false end
+    local info = CardInfo[cardName]
+    if not info then
+        warn("[AutoBattle] Unknown card", cardName)
+        return false
+    end
+
+    local elixir = GetElixir()
+    local role = GetCardRole(cardName)
+
+    -- Smart hold logic: don't dump high cost when low
+    if role == "WINCON" or role == "HEAVY" then
+        if elixir < info.EnergyCost + CONFIG.MIN_ELIXIR_BUFFER then
+            return false
+        end
+    end
+
+    local enemies = GetUnits(true)
+    local friends = GetUnits(false)
+    local pressure, laneP = CalculatePressure(enemies)
+    local isDefensive = pressure > 2.5
+
+    local frontline = GetFriendlyFrontline(friends, GetSide())
+
+    local tile = ChooseSmartTile(cardName, isDefensive, frontline)
+    if not tile then
+        -- fallback: any valid tile
+        local all = TileHandler:GetValidTiles(GetSide())
+        tile = all[math.random(1, #all)]
+    end
+
+    local pos = tile.Position + Vector3.new(0, 2.2, 0)
+    local cf = CFrame.new(pos)
+
+    local rot = SharedFunctions:GetUnitSpawnRotation(GetSide())
+    if info.CardType == "Building" then
+        rot = SharedFunctions:GetBuildingSpawnRotation(GetSide()) or rot
+    end
+    cf = cf * rot
+
+    if Spend(cardName) then
+        log("Placing", cardName, "strategy:", state.currentStrategy, "elixir:", math.floor(elixir*10)/10)
+    end
+
+    local pr = getPlaceRemote()
+    if pr then
+        pr:FireServer(info.CardType or "Unit", cardName, cf)
+    else
+        warn("[AutoBattle] Place remote not ready yet")
+    end
+
+    -- Record for UI
+    state.lastCardPlaced = cardName
+    state.placements = (state.placements or 0) + 1
+    state.lastPlaceTime = os.clock()
+    return true
+end
+
+-- =====================================================
+-- MAIN THINK LOOP (SMART BRAIN)
+-- =====================================================
+
+local function Think()
+    if not IsInBattle() then return end
+    if not ensureModulesLoaded() then return end
+
+    local now = os.clock()
+    if now - state.lastPlaceTime < CONFIG.PLACE_COOLDOWN then return end
+
+    local elixir = GetElixir()
+    if elixir < 1.6 then return end   -- wait for more elixir
+
+    local enemies = GetUnits(true)
+    local _, lanePressure = CalculatePressure(enemies)
+    local totalPressure = 0
+    for _, v in pairs(lanePressure) do totalPressure += v end
+
+    -- Update UI stats
+    state.enemyCount = #enemies
+    state.pressure = math.floor(totalPressure * 10) / 10
+
+    local card = PickSmartCard(enemies, totalPressure, lanePressure, elixir)
+    if not card then return end
+
+    -- Extra safety for big plays
+    local role = GetCardRole(card)
+    if (role == "WINCON" or role == "HEAVY") and (now - state.lastBigPlayTime < CONFIG.BIG_PLAY_COOLDOWN) then
+        if elixir < 8 then return end
+    end
+
+    PerformPlace(card)
+end
+
+-- =====================================================
+-- PUBLIC API
+-- =====================================================
+
+function AutoBattle:SetDeck(deck)
+    if type(deck) == "table" and #deck > 0 then
+        state.deck = table.clone(deck)
+        log("Deck updated:", table.concat(state.deck, ", "))
+    end
+end
+
+function AutoBattle:SyncDeckFromGame()
+    -- Best effort from UI
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return false end
+    local gameGui = pg:FindFirstChild("Game")
+    if not gameGui then return end
+    local deckGui = gameGui:FindFirstChild("Deck")
+    if not deckGui then return end
+
+    -- Simple scan
+    local found = {}
+    for _, obj in ipairs(deckGui:GetDescendants()) do
+        if obj:IsA("TextLabel") and obj.Text and obj.Text:len() > 1 then
+            for key in pairs(CardInfo) do
+                if type(key) == "string" and string.find(obj.Text, key) then
+                    table.insert(found, key)
+                end
+            end
+        end
+    end
+
+    if #found >= 4 then
+        state.deck = found
+        log("Synced deck from UI")
+        return true
+    end
+    return false
+end
+
+function AutoBattle:Start(customDeck)
+    if state.running then return end
+    if not ensureModulesLoaded() then return end
+
+    if customDeck then
+        self:SetDeck(customDeck)
+    else
+        self:SyncDeckFromGame()
+    end
+
+    state.running = true
+    AutoBattle.Enabled = true
+
+    state.connection = RunService.Heartbeat:Connect(function()
+        if not state.running then return end
+        if os.clock() - state.lastPlaceTime > 0.15 then
+            task.spawn(Think)
+        end
+    end)
+
+    log("STARTED - Smart AutoBattle active")
+    log("Deck:", table.concat(state.deck, ", "))
+end
+
+function AutoBattle:Stop()
+    state.running = false
+    AutoBattle.Enabled = false
+    if state.connection then
+        state.connection:Disconnect()
+        state.connection = nil
+    end
+    log("STOPPED")
+end
+
+function AutoBattle:ForcePlace(name)
+    if IsInBattle() then
+        return PerformPlace(name)
+    end
+end
+
+function AutoBattle:GetStatus()
+    return {
+        running = state.running,
+        elixir = GetElixir(),
+        elixirIn3s = GetElixirIn(3),
+        strategy = state.currentStrategy,
+        deck = state.deck,
+        lastCard = state.lastCardPlaced,
+        placements = state.placements,
+        enemies = state.enemyCount,
+        pressure = state.pressure,
+    }
+end
+
+-- Equip a preset deck (only if cards are valid in CardInfo)
+function AutoBattle:EquipPreset(presetName)
+    if not ensureModulesLoaded() then return false end
+
+    local deck = ARENA_PRESETS[presetName]
+    if not deck then
+        warn("[AutoBattle] Unknown preset:", presetName)
+        return false
+    end
+
+    local ok, DeckMod = pcall(function()
+        local modules = ReplicatedStorage:WaitForChild("Modules", 5)
+        local uiHandler = modules and modules:WaitForChild("UIHandler", 5)
+        return uiHandler and require(uiHandler:WaitForChild("Deck", 5))
+    end)
+    if not ok or not DeckMod or not DeckMod.SetDeck then
+        warn("[AutoBattle] Could not load Deck module. Make sure you're in the game and not in a match.")
+        return false
+    end
+
+    -- Extra safety: only equip if deck GUI seems ready (prevents assertions in game's deck init)
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        local gameGui = pg:FindFirstChild("Game")
+        if gameGui then
+            local deckGui = gameGui:FindFirstChild("Deck")
+            if not deckGui then
+                warn("[AutoBattle] Deck GUI not found. You probably need to open the Deck screen first (click the DECK button in lobby).")
+                return false
+            end
+        end
+    end
+
+    -- Verify all cards exist ( "only if its possible" check )
+    for _, cardName in ipairs(deck) do
+        if not CardInfo[cardName] then
+            warn("[AutoBattle] Card not found in CardInfo:", cardName)
+            return false
+        end
+    end
+
+    -- Attempt to equip
+    local success, err = pcall(function()
+        DeckMod:SetDeck(deck)
+    end)
+
+    if success then
+        state.deck = table.clone(deck)
+        state.currentDeckPreset = presetName
+        log("Equipped preset:", presetName)
+        return true
+    else
+        warn("[AutoBattle] Failed to equip deck:", err)
+        return false
+    end
+end
+
+-- Backwards compat for old button
+function AutoBattle:EquipArena1Deck()
+    return AutoBattle:EquipPreset("Arena 1 (Starter Village)")
+end
+
+-- Quick start helper for Cmdr / console
+function AutoBattle:QuickStart()
+    self.Debug = true
+    self:Start()
+end
+
+-- =====================================================
+-- MODERN TOGGLE UI
+-- =====================================================
+
+local function CreateModernToggle(parent, onToggle)
+    -- The switch container
+    local switch = Instance.new("Frame")
+    switch.Name = "ToggleSwitch"
+    switch.Size = UDim2.new(0, 48, 0, 26)
+    switch.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+    switch.BorderSizePixel = 0
+    switch.Parent = parent
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = switch
+
+    -- The moving knob
+    local knob = Instance.new("Frame")
+    knob.Name = "Knob"
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    knob.Position = UDim2.new(0, 3, 0.5, 0)
+    knob.AnchorPoint = Vector2.new(0, 0.5)
+    knob.BackgroundColor3 = Color3.fromRGB(240, 240, 245)
+    knob.BorderSizePixel = 0
+    knob.Parent = switch
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+
+    local isOn = false
+
+    local function updateVisual(animate)
+        local targetPos = isOn and UDim2.new(1, -23, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
+        local targetColor = isOn and Color3.fromRGB(0, 210, 160) or Color3.fromRGB(60, 60, 75)
+
+        if animate then
+            TweenService:Create(switch, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+                BackgroundColor3 = targetColor
+            }):Play()
+            TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+                Position = targetPos
+            }):Play()
+        else
+            switch.BackgroundColor3 = targetColor
+            knob.Position = targetPos
+        end
+    end
+
+    switch.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isOn = not isOn
+            updateVisual(true)
+            if onToggle then
+                onToggle(isOn)
+            end
+        end
+    end)
+
+    local api = {}
+    function api:Set(on, noAnim)
+        isOn = on
+        updateVisual(not noAnim)
+    end
+    function api:Get()
+        return isOn
+    end
+
+    updateVisual(false)
+    return api
+end
+
+function AutoBattle:CreateUI()
+    if not ensureModulesLoaded() then
+        warn("[AutoBattle] Cannot create UI - modules not loaded yet.")
+        return nil
+    end
+
+    if state.ui and state.ui.screenGui and state.ui.screenGui.Parent then
+        return state.ui
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoBattleUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local main = Instance.new("Frame")
+    main.Name = "MainPanel"
+    main.Size = UDim2.new(0, 260, 0, 280)
+    main.Position = UDim2.new(1, -280, 0, 80)
+    main.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+    main.BorderSizePixel = 0
+    main.Parent = screenGui
+
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 12)
+    mainCorner.Parent = main
+
+    -- Subtle border
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(55, 55, 70)
+    stroke.Thickness = 1
+    stroke.Parent = main
+
+    -- Title bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 32)
+    titleBar.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = main
+
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 12)
+    titleCorner.Parent = titleBar
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 1, 0)
+    titleLabel.Position = UDim2.new(0, 12, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "AUTO BATTLE"
+    titleLabel.TextColor3 = Color3.fromRGB(235, 235, 245)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = titleBar
+
+    -- Toggle row
+    local toggleRow = Instance.new("Frame")
+    toggleRow.Size = UDim2.new(1, -24, 0, 36)
+    toggleRow.Position = UDim2.new(0, 12, 0, 40)
+    toggleRow.BackgroundTransparency = 1
+    toggleRow.Parent = main
+
+    local toggleLabel = Instance.new("TextLabel")
+    toggleLabel.Size = UDim2.new(0.6, 0, 1, 0)
+    toggleLabel.BackgroundTransparency = 1
+    toggleLabel.Text = "Enable Auto Battle"
+    toggleLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
+    toggleLabel.Font = Enum.Font.Gotham
+    toggleLabel.TextSize = 13
+    toggleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    toggleLabel.Parent = toggleRow
+
+    local toggle = CreateModernToggle(toggleRow, function(on)
+        if on then
+            AutoBattle:Start()
+        else
+            AutoBattle:Stop()
+        end
+    end)
+
+    -- Arena 1 Preset Deck button (for user in Arena 1)
+    local deckButton = Instance.new("TextButton")
+    deckButton.Size = UDim2.new(1, -24, 0, 26)
+    deckButton.Position = UDim2.new(0, 12, 0, 78)
+    deckButton.BackgroundColor3 = Color3.fromRGB(40, 85, 65)
+    deckButton.BorderSizePixel = 0
+    deckButton.Text = "⚔ Equip Arena 1 Preset Deck"
+    deckButton.TextColor3 = Color3.fromRGB(200, 255, 220)
+    deckButton.Font = Enum.Font.GothamBold
+    deckButton.TextSize = 12
+    deckButton.Parent = main
+
+    local deckBtnCorner = Instance.new("UICorner")
+    deckBtnCorner.CornerRadius = UDim.new(0, 6)
+    deckBtnCorner.Parent = deckButton
+
+    deckButton.MouseButton1Click:Connect(function()
+        local ok = AutoBattle:EquipArena1Deck()
+        if ok and state.ui then
+            if state.ui.deckStatusLabel then
+                state.ui.deckStatusLabel.Text = "Current Deck: Arena 1 equipped!"
+                state.ui.deckStatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+            end
+            if state.ui.currentDeckList then
+                state.ui.currentDeckList.Text = table.concat(ARENA1_PRESET, ", ")
+            end
+            task.delay(2.5, function()
+                if state.ui and state.ui.deckStatusLabel then
+                    state.ui.deckStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
                 end
             end)
         end
-        if ZapClient and world and cts then
-            return true, "Found all modules!"
-        end
-    end
-    
-    return false, string.format("Missing: ZapClient(%s) world(%s) cts(%s)", tostring(ZapClient ~= nil), tostring(world ~= nil), tostring(cts ~= nil))
-end
+    end)
 
-local loadSuccess, loadError = scanMemory()
+    local presetsLabel = Instance.new("TextLabel")
+    presetsLabel.Size = UDim2.new(1, -24, 0, 14)
+    presetsLabel.Position = UDim2.new(0, 12, 0, 88)
+    presetsLabel.BackgroundTransparency = 1
+    presetsLabel.Text = "Deck Presets (Arena 1+):"
+    presetsLabel.TextColor3 = Color3.fromRGB(150, 170, 200)
+    presetsLabel.Font = Enum.Font.Gotham
+    presetsLabel.TextSize = 9
+    presetsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    presetsLabel.Parent = main
 
-if not loadSuccess or not ZapClient or not world or not cts then
-    warn("[RoDash AutoFarm] CRITICAL ERROR: Failed to find game modules in memory!")
-    warn("[RoDash AutoFarm] Error Details: " .. tostring(loadError))
-    warn("[RoDash AutoFarm] Your executor's require is broken, and it failed to find the tables in memory as a fallback.")
-    return
-end
+    -- Additional preset buttons (smaller, for other arenas) - laid out in grid
+    local function makePresetBtn(text, presetKey, xScale, yPos)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.48, -6, 0, 18)
+        btn.Position = UDim2.new(xScale, 0, 0, yPos)
+        btn.BackgroundColor3 = Color3.fromRGB(50, 70, 90)
+        btn.BorderSizePixel = 0
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(200, 220, 255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 9
+        btn.Parent = main
 
-print("[RoDash AutoFarm] Modules loaded successfully! Loading UI...")
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 4)
+        c.Parent = btn
 
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
-
-local Window = Rayfield:CreateWindow({
-   Name = "RoDash AutoFarm",
-   LoadingTitle = "RoDash Interface Suite",
-   LoadingSubtitle = "AutoFarm Job",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = "RoDashHub",
-      FileName = "AutoFarmConfig"
-   },
-   Discord = {
-      Enabled = false,
-      Invite = "",
-      RememberJoins = false
-   },
-   KeySystem = false
-})
-
-local Tab = Window:CreateTab("Job", 4483362458)
-local Section = Tab:CreateSection("AutoFarm Control")
-
-local autoFarmActive = false
-
-local function getActiveOrder()
-    for entityId, status in world:query(cts.RoDashOrderStatus) do
-        local order = world:get(entityId, cts.RoDashOrder)
-        return entityId, status, order
-    end
-    return nil
-end
-
-local function getAvailableOrders()
-    local orders = {}
-    for entityId, order in world:query(cts.RoDashOrder):without(cts.RoDashOrderStatus) do
-        table.insert(orders, {id = order.id, data = order})
-    end
-    return orders
-end
-
-local Toggle = Tab:CreateToggle({
-   Name = "Enable AutoFarm",
-   Info = "Toggles the AutoFarm job on and off.",
-   CurrentValue = false,
-   Flag = "AutoFarmToggle",
-   Callback = function(Value)
-      autoFarmActive = Value
-      if autoFarmActive then
-         print("AutoFarm Started")
-         
-         -- Ensure player is on RoDash team
-         if LocalPlayer.Team and LocalPlayer.Team.Name ~= "RoDash" then
-             local TeamsMain = ReplicatedStorage:FindFirstChild("TeamsMain", true)
-             if TeamsMain then
-                 TeamsMain:InvokeServer("Join", "RoDash")
-                 task.wait(1)
-             end
-         end
-
-         task.spawn(function()
-            while autoFarmActive do
-               task.wait(1)
-               
-               local entityId, status, order = getActiveOrder()
-               
-               if status then
-                   local step = status.step
-                   local orderId = order.id
-                   
-                   local char = LocalPlayer.Character
-                   local root = char and char:FindFirstChild("HumanoidRootPart")
-                   
-                   if step == "going_to_vendor" or step == "picking_up_bag" then
-                       if root and order.storePosition then
-                           root.CFrame = CFrame.new(order.storePosition)
-                       end
-                       task.wait(0.5)
-                       
-                       if step == "picking_up_bag" then
-                           ZapClient.EcsJobAction.Call("pickupBag", { orderId = orderId })
-                       end
-                       
-                   elseif step == "going_to_customer" or step == "bag_dropoff" then
-                       if root and order.customerPosition then
-                           root.CFrame = CFrame.new(order.customerPosition)
-                       end
-                       task.wait(0.5)
-                       
-                       ZapClient.EcsJobAction.Call("deliver", { orderId = orderId })
-                       
-                   elseif step == "reward_claimable" then
-                       ZapClient.EcsJobAction.Call("collectReward", { orderId = orderId })
-
-                   elseif step == "acquiring_items" then
-                       -- Grocery orders not supported by this autofarm yet, cancel it to avoid getting stuck
-                       ZapClient.EcsJobAction.Call("cancelOrder", { orderId = orderId })
-                       task.wait(1)
-                   end
-               else
-                   local available = getAvailableOrders()
-                   local bestOrder = nil
-                   
-                   -- Prefer restaurant orders since groceries might require picking items
-                   for _, ord in ipairs(available) do
-                       if ord.data.isRestaurantPickup then
-                           bestOrder = ord
-                           break
-                       end
-                   end
-                   
-                   -- Fallback to any order
-                   if not bestOrder and #available > 0 then
-                       bestOrder = available[1]
-                   end
-                   
-                   if bestOrder then
-                       ZapClient.EcsJobAction.Call("startOrder", { orderId = bestOrder.id })
-                   end
-               end
+        btn.MouseButton1Click:Connect(function()
+            local ok = AutoBattle:EquipPreset(presetKey)
+            if ok and state.ui then
+                local preset = ARENA_PRESETS[presetKey]
+                if state.ui.deckStatusLabel then
+                    state.ui.deckStatusLabel.Text = "Current Deck: " .. presetKey .. " equipped!"
+                    state.ui.deckStatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+                end
+                if state.ui.currentDeckList and preset then
+                    state.ui.currentDeckList.Text = table.concat(preset, ", ")
+                end
+                task.delay(2.5, function()
+                    if state.ui and state.ui.deckStatusLabel then
+                        state.ui.deckStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+                    end
+                end)
             end
-         end)
-      else
-         print("AutoFarm Stopped")
-      end
-   end,
-})
+        end)
+        return btn
+    end
 
-Rayfield:LoadConfiguration()
+    -- Row 1: Arena 2 and 3 at y=100
+    makePresetBtn("Arena 2", "Arena 2 (Sky Island)", 0, 100)
+    local b2 = makePresetBtn("Arena 3", "Arena 3 (Wisteria Forest)", 0.5, 100)
+    -- Row 2: Arena 4 and 5 at y=120
+    makePresetBtn("Arena 4", "Arena 4 (Ice Cave)", 0, 120)
+    makePresetBtn("Arena 5+", "Arena 5 (Shibuya)", 0.5, 120)
+    -- Row 3: Higher at y=140
+    makePresetBtn("Arena 6+ (Strong)", "Arena 6+ (Higher)", 0, 140)
+
+    -- Status section (shifted down to make room for preset buttons)
+    local statusFrame = Instance.new("Frame")
+    statusFrame.Size = UDim2.new(1, -24, 0, 115)
+    statusFrame.Position = UDim2.new(0, 12, 0, 165)
+    statusFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 46)
+    statusFrame.BorderSizePixel = 0
+    statusFrame.Parent = main
+
+    local statusCorner = Instance.new("UICorner")
+    statusCorner.CornerRadius = UDim.new(0, 8)
+    statusCorner.Parent = statusFrame
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(1, -12, 0, 16)
+    statusLabel.Position = UDim2.new(0, 8, 0, 2)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 90, 90)
+    statusLabel.Font = Enum.Font.GothamBold
+    statusLabel.TextSize = 11
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = statusFrame
+
+    local elixirLabel = Instance.new("TextLabel")
+    elixirLabel.Name = "ElixirLabel"
+    elixirLabel.Size = UDim2.new(1, -12, 0, 14)
+    elixirLabel.Position = UDim2.new(0, 8, 0, 18)
+    elixirLabel.BackgroundTransparency = 1
+    elixirLabel.Text = "Elixir: 5.0"
+    elixirLabel.TextColor3 = Color3.fromRGB(180, 200, 220)
+    elixirLabel.Font = Enum.Font.Gotham
+    elixirLabel.TextSize = 10
+    elixirLabel.TextXAlignment = Enum.TextXAlignment.Left
+    elixirLabel.Parent = statusFrame
+
+    local strategyLabel = Instance.new("TextLabel")
+    strategyLabel.Name = "StrategyLabel"
+    strategyLabel.Size = UDim2.new(1, -12, 0, 14)
+    strategyLabel.Position = UDim2.new(0, 8, 0, 32)
+    strategyLabel.BackgroundTransparency = 1
+    strategyLabel.Text = "Strategy: idle"
+    strategyLabel.TextColor3 = Color3.fromRGB(160, 170, 190)
+    strategyLabel.Font = Enum.Font.Gotham
+    strategyLabel.TextSize = 10
+    strategyLabel.TextXAlignment = Enum.TextXAlignment.Left
+    strategyLabel.Parent = statusFrame
+
+    -- More info labels
+    local lastActionLabel = Instance.new("TextLabel")
+    lastActionLabel.Name = "LastActionLabel"
+    lastActionLabel.Size = UDim2.new(1, -12, 0, 14)
+    lastActionLabel.Position = UDim2.new(0, 8, 0, 46)
+    lastActionLabel.BackgroundTransparency = 1
+    lastActionLabel.Text = "Last: --"
+    lastActionLabel.TextColor3 = Color3.fromRGB(200, 210, 180)
+    lastActionLabel.Font = Enum.Font.Gotham
+    lastActionLabel.TextSize = 10
+    lastActionLabel.TextXAlignment = Enum.TextXAlignment.Left
+    lastActionLabel.Parent = statusFrame
+
+    local battlefieldLabel = Instance.new("TextLabel")
+    battlefieldLabel.Name = "BattlefieldLabel"
+    battlefieldLabel.Size = UDim2.new(1, -12, 0, 14)
+    battlefieldLabel.Position = UDim2.new(0, 8, 0, 60)
+    battlefieldLabel.BackgroundTransparency = 1
+    battlefieldLabel.Text = "Enemies: 0 | Pressure: 0.0"
+    battlefieldLabel.TextColor3 = Color3.fromRGB(180, 190, 210)
+    battlefieldLabel.Font = Enum.Font.Gotham
+    battlefieldLabel.TextSize = 10
+    battlefieldLabel.TextXAlignment = Enum.TextXAlignment.Left
+    battlefieldLabel.Parent = statusFrame
+
+    local placementsLabel = Instance.new("TextLabel")
+    placementsLabel.Name = "PlacementsLabel"
+    placementsLabel.Size = UDim2.new(1, -12, 0, 14)
+    placementsLabel.Position = UDim2.new(0, 8, 0, 74)
+    placementsLabel.BackgroundTransparency = 1
+    placementsLabel.Text = "Placements: 0"
+    placementsLabel.TextColor3 = Color3.fromRGB(170, 185, 205)
+    placementsLabel.Font = Enum.Font.Gotham
+    placementsLabel.TextSize = 10
+    placementsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    placementsLabel.Parent = statusFrame
+
+    -- Current deck display (prominent)
+    local deckStatusLabel = Instance.new("TextLabel")
+    deckStatusLabel.Name = "DeckStatusLabel"
+    deckStatusLabel.Size = UDim2.new(1, -12, 0, 14)
+    deckStatusLabel.Position = UDim2.new(0, 8, 0, 88)
+    deckStatusLabel.BackgroundTransparency = 1
+    deckStatusLabel.Text = "Current Deck: Not set"
+    deckStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    deckStatusLabel.Font = Enum.Font.GothamBold
+    deckStatusLabel.TextSize = 10
+    deckStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    deckStatusLabel.Parent = statusFrame
+
+    local currentDeckList = Instance.new("TextLabel")
+    currentDeckList.Name = "CurrentDeckList"
+    currentDeckList.Size = UDim2.new(1, -12, 0, 28)
+    currentDeckList.Position = UDim2.new(0, 8, 0, 102)
+    currentDeckList.BackgroundTransparency = 1
+    currentDeckList.Text = "(cards will appear here after equip or sync)"
+    currentDeckList.TextColor3 = Color3.fromRGB(190, 200, 210)
+    currentDeckList.Font = Enum.Font.Gotham
+    currentDeckList.TextSize = 9
+    currentDeckList.TextXAlignment = Enum.TextXAlignment.Left
+    currentDeckList.TextWrapped = true
+    currentDeckList.Parent = statusFrame
+
+    -- Make the panel draggable
+    local dragging = false
+    local dragStart, startPos
+
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+
+    titleBar.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    -- Store references
+    state.ui = {
+        screenGui = screenGui,
+        main = main,
+        toggle = toggle,
+        statusLabel = statusLabel,
+        elixirLabel = elixirLabel,
+        strategyLabel = strategyLabel,
+        lastActionLabel = lastActionLabel,
+        battlefieldLabel = battlefieldLabel,
+        placementsLabel = placementsLabel,
+        deckStatusLabel = deckStatusLabel,
+        currentDeckList = currentDeckList,
+    }
+
+    -- Initial deck display attempt + try to sync real game deck
+    task.delay(1, function()
+        pcall(function()
+            if state.ui and state.ui.currentDeckList then
+                if state.deck and #state.deck > 0 then
+                    state.ui.currentDeckList.Text = table.concat(state.deck, ", ")
+                else
+                    AutoBattle:SyncDeckFromGame()
+                    if state.deck and #state.deck > 0 then
+                        state.ui.currentDeckList.Text = table.concat(state.deck, ", ")
+                    end
+                end
+            end
+        end)
+    end)
+
+    -- Start live updater
+    task.spawn(function()
+        while screenGui.Parent do
+            if state.ui then
+                local status = AutoBattle:GetStatus()
+                local isRunning = status.running
+
+                if state.ui.toggle:Get() ~= isRunning then
+                    state.ui.toggle:Set(isRunning, true)
+                end
+
+                state.ui.statusLabel.Text = isRunning and "Status: RUNNING" or "Status: OFF"
+                state.ui.statusLabel.TextColor3 = isRunning and Color3.fromRGB(80, 230, 160) or Color3.fromRGB(255, 90, 90)
+
+                state.ui.elixirLabel.Text = string.format("Elixir: %.1f  (in 3s: %.1f)", status.elixir or 5, status.elixirIn3s or 5)
+
+                state.ui.strategyLabel.Text = "Strategy: " .. (status.strategy or "idle")
+
+                -- Show tower intent
+                if isRunning then
+                    state.ui.strategyLabel.Text = state.ui.strategyLabel.Text .. "  |  Buildings when good"
+                end
+
+                -- More info
+                if status.lastCard then
+                    state.ui.lastActionLabel.Text = "Last: " .. tostring(status.lastCard)
+                else
+                    state.ui.lastActionLabel.Text = "Last: --"
+                end
+
+                state.ui.battlefieldLabel.Text = string.format("Enemies: %d | Pressure: %.1f", status.enemies or 0, status.pressure or 0)
+
+                state.ui.placementsLabel.Text = "Placements: " .. tostring(status.placements or 0)
+
+                -- Current deck display update
+                local deckToShow = state.deck or status.deck or {}
+                if state.ui.deckStatusLabel then
+                    if state.currentDeckPreset then
+                        state.ui.deckStatusLabel.Text = "Current Deck: " .. state.currentDeckPreset
+                    else
+                        state.ui.deckStatusLabel.Text = "Current Deck: " .. (#deckToShow .. " cards")
+                    end
+                end
+                if state.ui.currentDeckList and deckToShow and #deckToShow > 0 then
+                    state.ui.currentDeckList.Text = table.concat(deckToShow, ", ")
+                end
+            end
+            task.wait(0.35)
+        end
+    end)
+
+    return state.ui
+end
+
+-- Auto create the UI on load (with safety delays)
+task.spawn(function()
+    task.wait(4)  -- longer delay to let game fully init and avoid assertion in init:836
+    if not ensureModulesLoaded() then
+        warn("[AutoBattle] Modules not ready yet, UI will try again later.")
+        task.wait(3)
+        if not ensureModulesLoaded() then return end
+    end
+    local ok, err = pcall(function()
+        AutoBattle:CreateUI()
+    end)
+    if not ok then
+        warn("[AutoBattle] Failed to create UI:", err)
+    else
+        print("[AutoBattle] UI created automatically.")
+    end
+end)
+
+print("[AutoBattle] Script loaded. UI should appear automatically after a short delay.")
+print("Make sure you are in the lobby and click the DECK button at least once before using equip presets.")
+
+-- Public method to toggle via code or ui
+function AutoBattle:Toggle()
+    local ui = state.ui
+    if ui and ui.toggle then
+        local newState = not ui.toggle:Get()
+        ui.toggle:Set(newState)
+        if newState then
+            self:Start()
+        else
+            self:Stop()
+        end
+    else
+        if state.running then self:Stop() else self:Start() end
+    end
+end
+
+-- Update start/stop to sync UI
+local oldStart = AutoBattle.Start
+function AutoBattle:Start(...)
+    local res = oldStart(self, ...)
+    if state.ui and state.ui.toggle then
+        state.ui.toggle:Set(true, true)
+    end
+    return res
+end
+
+local oldStop = AutoBattle.Stop
+function AutoBattle:Stop()
+    oldStop(self)
+    if state.ui and state.ui.toggle then
+        state.ui.toggle:Set(false, true)
+    end
+end
+
+return AutoBattle
