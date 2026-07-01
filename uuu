@@ -17,15 +17,13 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
--- Give the game as much time as possible to finish its own initialization.
--- This helps avoid "assertion failed" in the game's internal 'init' script.
--- Extra safety wait at the very top for executor injection timing
-task.wait(2)
+-- Remote-only friendly AutoBattle (bypasses hard-to-require internal modules)
+-- Uses only Remotes + workspace scanning + embedded card data for maximum compatibility with executors (Delta etc.)
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
-task.wait(1)
+task.wait(1.5)
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
@@ -36,72 +34,132 @@ local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local _modulesLoaded = false
 local EnergyShared, CardInfo, TileHandler, SharedFunctions, PlaceRemote
 
--- Robust module finder. Some executors + games have slow replication or different structure.
-local function findModule(name, timeout)
-	timeout = timeout or 15
-	local start = os.clock()
+-- Old findModule removed - we now use remotes + embedded data for maximum compatibility.
 
-	-- First try direct under common folders
-	local candidates = {
-		ReplicatedStorage,
-		ReplicatedStorage:FindFirstChild("Modules"),
-		ReplicatedStorage:FindFirstChild("Shared")
-	}
+-- ================= REMOTE-BASED ENERGY (no module required) =================
+local currentEnergy = 5
+local energyRate = 0.357
+local lastEnergySync = os.clock()
+local energyInitialized = false
 
-	while os.clock() - start < timeout do
-		for _, parent in ipairs(candidates) do
-			if parent then
-				local found = parent:FindFirstChild(name, true) -- recursive search
-				if found and found:IsA("ModuleScript") then
-					return found
-				end
-			end
-		end
-
-		-- Also try top level in ReplicatedStorage
-		local top = ReplicatedStorage:FindFirstChild(name)
-		if top and top:IsA("ModuleScript") then
-			return top
-		end
-
-		task.wait(0.3)
-	end
-
-	return nil
+local function hookEnergyRemote()
+  local success = pcall(function()
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+    local energyRemote = remotes:WaitForChild("Energy", 5)
+    energyRemote.OnClientEvent:Connect(function(action, data)
+      if action == "Initialize" then
+        currentEnergy = 5
+        energyRate = (data and data.EnergyRate) or 0.357
+        lastEnergySync = os.clock()
+        energyInitialized = true
+      elseif action == "RateChange" then
+        energyRate = data or energyRate
+      elseif action == "SyncCheck" then
+        currentEnergy = data or currentEnergy
+        lastEnergySync = os.clock()
+      end
+    end)
+  end)
+  if not success then
+    warn("[AutoBattle] Could not hook Energy remote, will use prediction only.")
+  end
 end
 
-local function ensureModulesLoaded()
-	if _modulesLoaded then return true end
+hookEnergyRemote()
 
-	local success, err = pcall(function()
-		local energyMod   = findModule("EnergyShared", 15)
-		local cardMod     = findModule("CardInfo", 15)
-		local tileMod     = findModule("TileHandler", 15)
-		local sharedMod   = findModule("SharedFunctions", 15)
+local function GetCurrentEnergy()
+  if not energyInitialized then
+    -- fallback prediction from starting 5
+    local elapsed = os.clock() - lastEnergySync
+    return math.clamp(5 + elapsed * energyRate, 0, 10)
+  end
+  local elapsed = os.clock() - lastEnergySync
+  return math.clamp(currentEnergy + elapsed * energyRate, 0, 10)
+end
 
-		if not energyMod or not cardMod or not tileMod or not sharedMod then
-			error("One or more core modules could not be found after searching (EnergyShared, CardInfo, TileHandler, SharedFunctions)")
-		end
+-- ================= EMBEDDED CARD DATA (for smart decisions without CardInfo module) =================
+local CARD_DATA = {
+  -- Arena 1 and common
+  ArmoredGiant   = {cost = 5, ctype = "Unit"},
+  SunKing        = {cost = 5, ctype = "Unit"},
+  Sharpshooter   = {cost = 4, ctype = "Unit"},
+  KidFighter     = {cost = 3, ctype = "Unit"},
+  TreeNinjas     = {cost = 3, ctype = "Unit"},
+  CursedFlies    = {cost = 3, ctype = "Unit"},
+  Fireball       = {cost = 4, ctype = "Spell"},
+  Arrows         = {cost = 3, ctype = "Spell"},
+  Aliens         = {cost = 2, ctype = "Unit"},
+  Boarzerker     = {cost = 4, ctype = "Unit"},
+  Marines        = {cost = 5, ctype = "Unit"},
+  FireFist       = {cost = 5, ctype = "Unit"},
+  -- higher
+  ThunderGod     = {cost = 4, ctype = "Unit"},
+  EliteMarines   = {cost = 6, ctype = "Unit"},
+  Barracks       = {cost = 4, ctype = "Building"},
+  Cannon         = {cost = 3, ctype = "Building"},
+}
 
-		EnergyShared    = require(energyMod)
-		CardInfo        = require(cardMod)
-		TileHandler     = require(tileMod)
-		SharedFunctions = require(sharedMod)
+local function GetCardCost(name) return (CARD_DATA[name] and CARD_DATA[name].cost) or 99 end
+local function GetCardType(name) return (CARD_DATA[name] and CARD_DATA[name].ctype) or "Unit" end
 
-		PlaceRemote = ReplicatedStorage:FindFirstChild("Remotes", true)
-		if PlaceRemote then
-			PlaceRemote = PlaceRemote:FindFirstChild("Place") or PlaceRemote:WaitForChild("Place", 5)
-		end
-	end)
+local function CanAfford(name)
+  return GetCurrentEnergy() >= GetCardCost(name)
+end
 
-	if not success then
-		warn("[AutoBattle] Failed to load game modules:", err)
-		return false
-	end
+-- Place remote (we always use this directly)
+local function getPlaceRemote()
+  if PlaceRemote then return PlaceRemote end
+  pcall(function()
+    PlaceRemote = ReplicatedStorage:WaitForChild("Remotes", 5):WaitForChild("Place", 3)
+  end)
+  return PlaceRemote
+end
 
-	_modulesLoaded = true
-	print("[AutoBattle] Game modules loaded successfully via robust finder.")
-	return true
+-- ================= SIMPLIFIED SMART PLACEMENT (no TileHandler / SharedFunctions needed) =================
+local function GetSmartCFrame(cardName, isDefensive)
+  local sideAttr = LocalPlayer:GetAttribute("Side") or "A"
+  local isSideA = (sideAttr == "A" or sideAttr == "SideA")
+
+  -- Approximate arena: SideA is negative Z side, SideB positive.
+  -- Push direction
+  local push = isSideA and -1 or 1
+  local baseZ = isSideA and -25 or 25
+  local defendOffset = isDefensive and (push * 15) or (push * -8)
+
+  -- Simple lane selection
+  local laneX = 0
+  local r = math.random()
+  if r < 0.33 then laneX = -18
+  elseif r > 0.66 then laneX = 18
+  end
+
+  -- Try to find a reasonable Y
+  local map = workspace:FindFirstChild("Map")
+  local floor = map and map:FindFirstChild("Floor")
+  local y = 3
+  if floor then
+    y = floor.Position.Y + (floor.Size.Y / 2) + 1.5
+  end
+
+  local pos = Vector3.new(laneX, y, baseZ + defendOffset)
+
+  local cf = CFrame.new(pos)
+  if not isSideA then
+    cf = cf * CFrame.Angles(0, math.pi, 0)
+  end
+  return cf
+end
+
+local function PerformPlaceRemote(cardName)
+  local pr = getPlaceRemote()
+  if not pr then
+    warn("[AutoBattle] Place remote not found")
+    return false
+  end
+  local ctype = GetCardType(cardName)
+  local cf = GetSmartCFrame(cardName, false)  -- can improve with pressure later
+  pr:FireServer(ctype, cardName, cf)
+  return true
 end
 
 -- Helper for places that used the old direct PlaceRemote
@@ -240,11 +298,10 @@ local function log(...)
 end
 
 local function IsInBattle()
-    local side = LocalPlayer:GetAttribute("Side")
-    if not side then return false end
-    if not EnergyShared or not EnergyShared.GetCurrent then return false end
-    local elixir = EnergyShared.GetCurrent()
-    return elixir ~= nil and elixir > 0.5
+  local side = LocalPlayer:GetAttribute("Side")
+  if not side then return false end
+  -- Use our remote energy or prediction
+  return GetCurrentEnergy() > 0.5
 end
 
 local function GetSide()
@@ -263,37 +320,41 @@ local function GetEnemySide()
 end
 
 local function GetElixir()
-    if not ensureModulesLoaded() then return 5 end
-    return (EnergyShared and EnergyShared.GetCurrent and EnergyShared.GetCurrent()) or 5
+  return GetCurrentEnergy()
 end
 
--- Predict future elixir
+-- Predict future elixir (uses our remote-synced rate)
 local function GetElixirIn(seconds)
-    if not ensureModulesLoaded() then return 5 end
-    local current = GetElixir()
-    local rate = (EnergyShared and EnergyShared.GetRate and EnergyShared.GetRate()) or 1
-    local perSec = 0.35714285714285715 * rate   -- base from EnergyShared.Config
-    return math.clamp(current + perSec * seconds, 0, 10)
+  return math.clamp(GetCurrentEnergy() + (energyRate or 0.357) * seconds, 0, 10)
 end
 
 local function CanAfford(name)
-    if not ensureModulesLoaded() then return false end
-    local info = CardInfo[name]
-    if not info then return false end
-    return GetElixir() >= info.EnergyCost
+  return GetCurrentEnergy() >= GetCardCost(name)
 end
 
 local function Spend(name)
-    local info = CardInfo[name]
-    if info and EnergyShared.Spend then
-        return EnergyShared.Spend(info.EnergyCost)
-    end
+  -- Client prediction only. The actual spend happens server-side on successful Place.
+  -- We just lower our local prediction.
+  local c = GetCurrentEnergy()
+  local cost = GetCardCost(name)
+  if c >= cost then
+    currentEnergy = c - cost   -- rough
+    lastEnergySync = os.clock()
     return true
+  end
+  return false
 end
 
 local function GetCardRole(name)
-    if not ensureModulesLoaded() then return "MEDIUM" end
-    return CARD_ROLES[name] or "MEDIUM"
+  -- Simple fallback using our embedded data
+  local meta = CARD_DATA[name]
+  if meta then
+    if meta.ctype == "Spell" then return "SPELL" end
+    if meta.ctype == "Building" then return "BUILDING" end
+    if meta.cost >= 5 then return "HEAVY" end
+    return "MEDIUM"
+  end
+  return "MEDIUM"
 end
 
 -- =====================================================
@@ -550,62 +611,48 @@ end
 -- =====================================================
 
 local function PerformPlace(cardName)
-    if not ensureModulesLoaded() then return false end
-    local info = CardInfo[cardName]
-    if not info then
-        warn("[AutoBattle] Unknown card", cardName)
-        return false
-    end
+  if not CanAfford(cardName) then return false end
 
-    local elixir = GetElixir()
-    local role = GetCardRole(cardName)
+  local elixir = GetElixir()
+  local role = GetCardRole(cardName)
 
-    -- Smart hold logic: don't dump high cost when low
-    if role == "WINCON" or role == "HEAVY" then
-        if elixir < info.EnergyCost + CONFIG.MIN_ELIXIR_BUFFER then
-            return false
+  -- Smart hold: don't dump expensive cards
+  if (role == "WINCON" or role == "HEAVY") and elixir < GetCardCost(cardName) + 1.2 then
+    return false
+  end
+
+  -- Basic enemy scan for "smart" decision (still uses workspace, no modules)
+  local enemyCount = 0
+  local reg = workspace:FindFirstChild("NpcRegistryCamera")
+  if reg then
+    for _, d in ipairs(reg:GetDescendants()) do
+      if d:IsA("Model") and d.PrimaryPart then
+        local owner = d:GetAttribute("OwnerUserId")
+        if owner ~= LocalPlayer.UserId then
+          enemyCount = enemyCount + 1
         end
+      end
     end
+  end
 
-    local enemies = GetUnits(true)
-    local friends = GetUnits(false)
-    local pressure, laneP = CalculatePressure(enemies)
-    local isDefensive = pressure > 2.5
+  local isDefensive = enemyCount > 3
+  local cf = GetSmartCFrame(cardName, isDefensive)
 
-    local frontline = GetFriendlyFrontline(friends, GetSide())
+  if Spend(cardName) then
+    log("REMOTE-PLACE", cardName, "elixir~", math.floor(elixir*10)/10)
+  end
 
-    local tile = ChooseSmartTile(cardName, isDefensive, frontline)
-    if not tile then
-        -- fallback: any valid tile
-        local all = TileHandler:GetValidTiles(GetSide())
-        tile = all[math.random(1, #all)]
-    end
+  local pr = getPlaceRemote()
+  if pr then
+    local ctype = GetCardType(cardName)
+    pr:FireServer(ctype, cardName, cf)
 
-    local pos = tile.Position + Vector3.new(0, 2.2, 0)
-    local cf = CFrame.new(pos)
-
-    local rot = SharedFunctions:GetUnitSpawnRotation(GetSide())
-    if info.CardType == "Building" then
-        rot = SharedFunctions:GetBuildingSpawnRotation(GetSide()) or rot
-    end
-    cf = cf * rot
-
-    if Spend(cardName) then
-        log("Placing", cardName, "strategy:", state.currentStrategy, "elixir:", math.floor(elixir*10)/10)
-    end
-
-    local pr = getPlaceRemote()
-    if pr then
-        pr:FireServer(info.CardType or "Unit", cardName, cf)
-    else
-        warn("[AutoBattle] Place remote not ready yet")
-    end
-
-    -- Record for UI
     state.lastCardPlaced = cardName
     state.placements = (state.placements or 0) + 1
     state.lastPlaceTime = os.clock()
     return true
+  end
+  return false
 end
 
 -- =====================================================
@@ -613,34 +660,53 @@ end
 -- =====================================================
 
 local function Think()
-    if not IsInBattle() then return end
-    if not ensureModulesLoaded() then return end
+  if not IsInBattle() then return end
 
-    local now = os.clock()
-    if now - state.lastPlaceTime < CONFIG.PLACE_COOLDOWN then return end
+  local now = os.clock()
+  if now - state.lastPlaceTime < CONFIG.PLACE_COOLDOWN then return end
 
-    local elixir = GetElixir()
-    if elixir < 1.6 then return end   -- wait for more elixir
+  local elixir = GetElixir()
+  if elixir < 1.8 then return end
 
-    local enemies = GetUnits(true)
-    local _, lanePressure = CalculatePressure(enemies)
-    local totalPressure = 0
-    for _, v in pairs(lanePressure) do totalPressure += v end
-
-    -- Update UI stats
-    state.enemyCount = #enemies
-    state.pressure = math.floor(totalPressure * 10) / 10
-
-    local card = PickSmartCard(enemies, totalPressure, lanePressure, elixir)
-    if not card then return end
-
-    -- Extra safety for big plays
-    local role = GetCardRole(card)
-    if (role == "WINCON" or role == "HEAVY") and (now - state.lastBigPlayTime < CONFIG.BIG_PLAY_COOLDOWN) then
-        if elixir < 8 then return end
+  -- Simple pressure from workspace (no modules)
+  local enemyCount = 0
+  local reg = workspace:FindFirstChild("NpcRegistryCamera")
+  if reg then
+    for _, d in ipairs(reg:GetDescendants()) do
+      if d:IsA("Model") and d.PrimaryPart then
+        if d:GetAttribute("OwnerUserId") ~= LocalPlayer.UserId then
+          enemyCount += 1
+        end
+      end
     end
+  end
 
-    PerformPlace(card)
+  state.enemyCount = enemyCount
+  state.pressure = enemyCount
+
+  -- Pick a card from active deck (set by presets or default)
+  local active = state.deck or ARENA1_PRESET
+  local chosen = nil
+  for _, name in ipairs(active) do
+    if CanAfford(name) then
+      chosen = name
+      break
+    end
+  end
+
+  if not chosen then return end
+
+  -- Avoid spamming expensive
+  local role = GetCardRole(chosen)
+  if (role == "WINCON" or role == "HEAVY") and (now - state.lastBigPlayTime < CONFIG.BIG_PLAY_COOLDOWN) then
+    if elixir < 7.5 then return end
+  end
+
+  if PerformPlace(chosen) then
+    if role == "WINCON" or role == "HEAVY" then
+      state.lastBigPlayTime = now
+    end
+  end
 end
 
 -- =====================================================
@@ -737,16 +803,15 @@ function AutoBattle:GetStatus()
     }
 end
 
--- Equip a preset deck (only if cards are valid in CardInfo)
+-- Equip a preset deck (Deck module loaded independently)
 function AutoBattle:EquipPreset(presetName)
-    if not ensureModulesLoaded() then return false end
-
     local deck = ARENA_PRESETS[presetName]
     if not deck then
         warn("[AutoBattle] Unknown preset:", presetName)
         return false
     end
 
+    -- Load ONLY the Deck module (battle modules like EnergyShared are not required for equipping)
     local ok, DeckMod = pcall(function()
         local modules = ReplicatedStorage:WaitForChild("Modules", 5)
         local uiHandler = modules and modules:WaitForChild("UIHandler", 5)
@@ -770,11 +835,13 @@ function AutoBattle:EquipPreset(presetName)
         end
     end
 
-    -- Verify all cards exist ( "only if its possible" check )
-    for _, cardName in ipairs(deck) do
-        if not CardInfo[cardName] then
-            warn("[AutoBattle] Card not found in CardInfo:", cardName)
-            return false
+    -- Optional verify (only if battle modules happen to be available)
+    if ensureModulesLoaded() then
+        for _, cardName in ipairs(deck) do
+            if not CardInfo[cardName] then
+                warn("[AutoBattle] Card not found in CardInfo:", cardName)
+                return false
+            end
         end
     end
 
@@ -879,10 +946,8 @@ local function CreateModernToggle(parent, onToggle)
 end
 
 function AutoBattle:CreateUI()
-    if not ensureModulesLoaded() then
-        warn("[AutoBattle] Cannot create UI - modules not loaded yet.")
-        return nil
-    end
+    -- UI creation should NOT depend on the battle modules.
+    -- The core modules (EnergyShared etc.) are only needed for auto-placing logic.
 
     if state.ui and state.ui.screenGui and state.ui.screenGui.Parent then
         return state.ui
@@ -1235,7 +1300,11 @@ function AutoBattle:CreateUI()
                 state.ui.statusLabel.Text = isRunning and "Status: RUNNING" or "Status: OFF"
                 state.ui.statusLabel.TextColor3 = isRunning and Color3.fromRGB(80, 230, 160) or Color3.fromRGB(255, 90, 90)
 
-                state.ui.elixirLabel.Text = string.format("Elixir: %.1f  (in 3s: %.1f)", status.elixir or 5, status.elixirIn3s or 5)
+                if _moduleLoadFailed then
+                    state.ui.elixirLabel.Text = "Elixir: (modules not accessible)"
+                else
+                    state.ui.elixirLabel.Text = string.format("Elixir: %.1f  (in 3s: %.1f)", status.elixir or 5, status.elixirIn3s or 5)
+                end
 
                 state.ui.strategyLabel.Text = "Strategy: " .. (status.strategy or "idle")
 
@@ -1276,13 +1345,9 @@ function AutoBattle:CreateUI()
 end
 
 -- Auto create the UI on load (with safety delays)
+-- UI itself does not require the battle modules (EnergyShared etc.)
 task.spawn(function()
     task.wait(4)  -- longer delay to let game fully init and avoid assertion in init:836
-    if not ensureModulesLoaded() then
-        warn("[AutoBattle] Modules not ready yet, UI will try again later.")
-        task.wait(3)
-        if not ensureModulesLoaded() then return end
-    end
     local ok, err = pcall(function()
         AutoBattle:CreateUI()
     end)
@@ -1290,6 +1355,8 @@ task.spawn(function()
         warn("[AutoBattle] Failed to create UI:", err)
     else
         print("[AutoBattle] UI created automatically.")
+        -- Try to read whatever deck is currently shown in the game's UI
+        pcall(function() AutoBattle:SyncDeckFromGame() end)
     end
 end)
 
