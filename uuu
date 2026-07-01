@@ -36,18 +36,62 @@ local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local _modulesLoaded = false
 local EnergyShared, CardInfo, TileHandler, SharedFunctions, PlaceRemote
 
+-- Robust module finder. Some executors + games have slow replication or different structure.
+local function findModule(name, timeout)
+	timeout = timeout or 15
+	local start = os.clock()
+
+	-- First try direct under common folders
+	local candidates = {
+		ReplicatedStorage,
+		ReplicatedStorage:FindFirstChild("Modules"),
+		ReplicatedStorage:FindFirstChild("Shared")
+	}
+
+	while os.clock() - start < timeout do
+		for _, parent in ipairs(candidates) do
+			if parent then
+				local found = parent:FindFirstChild(name, true) -- recursive search
+				if found and found:IsA("ModuleScript") then
+					return found
+				end
+			end
+		end
+
+		-- Also try top level in ReplicatedStorage
+		local top = ReplicatedStorage:FindFirstChild(name)
+		if top and top:IsA("ModuleScript") then
+			return top
+		end
+
+		task.wait(0.3)
+	end
+
+	return nil
+end
+
 local function ensureModulesLoaded()
 	if _modulesLoaded then return true end
 
 	local success, err = pcall(function()
-		local mods = ReplicatedStorage:WaitForChild("Modules", 20)
-		local shared = ReplicatedStorage:WaitForChild("Shared", 20)
+		local energyMod   = findModule("EnergyShared", 15)
+		local cardMod     = findModule("CardInfo", 15)
+		local tileMod     = findModule("TileHandler", 15)
+		local sharedMod   = findModule("SharedFunctions", 15)
 
-		EnergyShared   = require(mods:WaitForChild("EnergyShared", 10))
-		CardInfo       = require(mods:WaitForChild("CardInfo", 10))
-		TileHandler    = require(mods:WaitForChild("TileHandler", 10))
-		SharedFunctions = require(shared:WaitForChild("SharedFunctions", 10))
-		PlaceRemote    = ReplicatedStorage:WaitForChild("Remotes", 10):WaitForChild("Place", 5)
+		if not energyMod or not cardMod or not tileMod or not sharedMod then
+			error("One or more core modules could not be found after searching (EnergyShared, CardInfo, TileHandler, SharedFunctions)")
+		end
+
+		EnergyShared    = require(energyMod)
+		CardInfo        = require(cardMod)
+		TileHandler     = require(tileMod)
+		SharedFunctions = require(sharedMod)
+
+		PlaceRemote = ReplicatedStorage:FindFirstChild("Remotes", true)
+		if PlaceRemote then
+			PlaceRemote = PlaceRemote:FindFirstChild("Place") or PlaceRemote:WaitForChild("Place", 5)
+		end
 	end)
 
 	if not success then
@@ -56,6 +100,7 @@ local function ensureModulesLoaded()
 	end
 
 	_modulesLoaded = true
+	print("[AutoBattle] Game modules loaded successfully via robust finder.")
 	return true
 end
 
